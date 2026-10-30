@@ -221,6 +221,7 @@ def memory_error(_, exc: MemoryError):
 def main() -> None:
     import uvicorn
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("docling").setLevel(logging.WARNING)  # per-page INFO chatter drowns the app log
     print(f"Apri http://{config.HOST}:{config.PORT}")
     uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
 

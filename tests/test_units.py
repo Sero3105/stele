@@ -171,6 +171,29 @@ def test_idle_model_is_evicted_for_room():
     assert unloaded == ["paddle"] and not rm.is_loaded("paddle")
 
 
+def test_eviction_unload_does_not_block_model_registration():
+    # Regression: unloading an evicted model must not run while holding the
+    # manager lock, or a model loading in another thread (which registers
+    # itself under that lock) deadlocks against the unload.
+    base = footprint()
+    rm = ResourceManager(budget=base + 3000 * MB, emergency=base + 2000 * MB)
+    unload_started, registered, saw = threading.Event(), threading.Event(), []
+
+    def unload():
+        unload_started.set()
+        saw.append(registered.wait(timeout=5))
+
+    with rm.lease("paddle", 1500 * MB, 100 * MB, 1):
+        rm.model_now_resident("paddle", 1500 * MB, unload)
+    t = threading.Thread(target=lambda: rm.lease("glm", 1500 * MB, 100 * MB, 1).__enter__())
+    t.start()
+    assert unload_started.wait(timeout=5)
+    rm.model_now_resident("loader", 10 * MB, lambda: None)  # blocks forever on the buggy code
+    registered.set()
+    t.join(timeout=5)
+    assert not t.is_alive() and saw == [True]
+
+
 # ------------------------------------------------------------------ jobs
 def test_safe_relative_path():
     assert safe_relative_path("Documenti/a.pdf") == PurePosixPath("Documenti/a.pdf")

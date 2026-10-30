@@ -32,7 +32,9 @@ def _converter(ocr: str | None, langs: list[str]):
         generate_picture_images=True,  # pictures are exported as files next to the Markdown
         images_scale=1.5,
         accelerator_options=AcceleratorOptions(device="auto", num_threads=4),
-        document_timeout=600,
+        # The pipeline converts at most 20 pages per call and checkpoints each chunk;
+        # 600 s under parallel load killed the OCR stage mid-chunk (partial, empty pages).
+        document_timeout=1800,
     )
     if ocr == "ocrmac":
         opts.ocr_options = OcrMacOptions(lang=langs, mode=OcrMode.DEFAULT, recognition="accurate")

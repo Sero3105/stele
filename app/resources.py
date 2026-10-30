@@ -136,6 +136,7 @@ class ResourceManager:
         self._next_id = 0
         self.peak_seen = self.baseline
         self.waits = 0
+        self._throttle_logged: dict[str, float] = {}
         threading.Thread(target=self._janitor, daemon=True, name="rm-janitor").start()
 
     # ---- accounting -------------------------------------------------------------------------
@@ -169,29 +170,35 @@ class ResourceManager:
         with self._cond:
             return name in self._models
 
-    def _evict_idle(self, keep: str | None) -> bool:
+    def _pop_idle_victim(self, keep: str | None):
+        """Remove the least-recently-used idle model from the registry (caller holds the lock).
+
+        The caller must unload() it AFTER releasing the lock: unload waits on the
+        engine's load lock, whose holder registers the loaded model under this
+        same lock — unloading under the lock deadlocks the whole manager."""
         idle = [m for m in self._models.values() if self._active(m.name) == 0 and m.name != keep]
         if not idle:
-            return False
+            return None
         victim = min(idle, key=lambda m: m.last_used)
-        log.info("evicting idle model %s (%.0f MB)", victim.name, victim.size / config.MB)
         del self._models[victim.name]
-        victim.unload()
-        gc.collect()
-        return True
+        return victim
 
     def _janitor(self) -> None:
         while True:
             time.sleep(15)
             with self._cond:
                 now = time.monotonic()
-                for m in list(self._models.values()):
-                    if self._active(m.name) == 0 and now - m.last_used > self.idle_unload_s:
-                        log.info("unloading %s after %.0fs idle", m.name, now - m.last_used)
-                        del self._models[m.name]
-                        m.unload()
-                        gc.collect()
-                self._cond.notify_all()
+                victims = [m for m in list(self._models.values())
+                           if self._active(m.name) == 0 and now - m.last_used > self.idle_unload_s]
+                for m in victims:
+                    del self._models[m.name]
+            for m in victims:
+                log.info("unloading %s after %.0fs idle", m.name, now - m.last_used)
+                m.unload()
+                gc.collect()
+            if victims:
+                with self._cond:
+                    self._cond.notify_all()
 
     # ---- leases -----------------------------------------------------------------------------
     @contextmanager
@@ -217,34 +224,49 @@ class ResourceManager:
             raise MemoryError(f"{engine}: job needs ~{(working_bytes + model_bytes) / config.GB:.1f} GB, "
                               f"over the {self.budget / config.GB:.0f} GB budget")
         waited = False
-        with self._cond:
-            while True:
-                if cancelled():
-                    raise InterruptedError("cancelled while queued")
-                running = self._active(engine)
-                load = 0 if engine in self._models else model_bytes
-                need = working_bytes + load
-                fp = footprint()
-                self.peak_seen = max(self.peak_seen, fp)
-                projected = max(fp, self.committed()) + need
-                os_ok = psutil.virtual_memory().available - need > 1 * config.GB
-                if running < max_parallel and projected <= self.emergency and os_ok:
-                    break
-                if running < max_parallel and self._evict_idle(keep=engine):
-                    continue
-                if not self._working and running < max_parallel and projected <= self.budget:
-                    # Nothing else running: allow up to the hard budget so a lone big job can progress.
-                    break
-                if not waited:
-                    self.waits += 1
-                    waited = True
-                    log.info("throttling %s: projected %.1f GB (emergency %.1f GB), running %d/%d",
-                             engine, projected / config.GB, self.emergency / config.GB, running, max_parallel)
-                self._cond.wait(timeout=1.0)
-            self._next_id += 1
-            # Model cost is held by the lease until model_now_resident() moves it to residency.
-            self._working[self._next_id] = (engine, working_bytes + load)
-            return self._next_id
+        while True:
+            victim = None
+            with self._cond:
+                while True:
+                    if cancelled():
+                        raise InterruptedError("cancelled while queued")
+                    running = self._active(engine)
+                    load = 0 if engine in self._models else model_bytes
+                    need = working_bytes + load
+                    fp = footprint()
+                    self.peak_seen = max(self.peak_seen, fp)
+                    projected = max(fp, self.committed()) + need
+                    os_ok = psutil.virtual_memory().available - need > 1 * config.GB
+                    if running < max_parallel and projected <= self.emergency and os_ok:
+                        break
+                    if running < max_parallel:
+                        victim = self._pop_idle_victim(keep=engine)
+                        if victim is not None:
+                            break  # unload it outside the lock, then re-check admission
+                    if not self._working and running < max_parallel and projected <= self.budget:
+                        # Nothing else running: allow up to the hard budget so a lone big job can progress.
+                        break
+                    if not waited:
+                        self.waits += 1
+                        waited = True
+                        self._log_throttle(engine, projected, running, max_parallel)
+                    self._cond.wait(timeout=1.0)
+                if victim is None:
+                    self._next_id += 1
+                    # Model cost is held by the lease until model_now_resident() moves it to residency.
+                    self._working[self._next_id] = (engine, need)
+                    return self._next_id
+            log.info("evicting idle model %s (%.0f MB)", victim.name, victim.size / config.MB)
+            victim.unload()
+            gc.collect()
+
+    def _log_throttle(self, engine: str, projected: int, running: int, max_parallel: int) -> None:
+        now = time.monotonic()
+        if now - self._throttle_logged.get(engine, 0.0) < 60:
+            return
+        self._throttle_logged[engine] = now
+        log.info("throttling %s: projected %.1f GB (emergency %.1f GB), running %d/%d",
+                 engine, projected / config.GB, self.emergency / config.GB, running, max_parallel)
 
     def model_now_resident(self, engine: str, size: int, unload: Callable[[], None]) -> None:
         """Called by an engine right after it loaded weights inside a lease."""
