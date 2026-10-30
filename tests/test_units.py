@@ -66,6 +66,25 @@ def test_vision_blocks_no_duplicate_table_cells():
     assert md == "Intro\n\n" + md_table([["A", "B"], ["1", "2"]]) + "\n\nFine"
 
 
+def test_vision_helper_jsonl_with_unicode_line_separators(monkeypatch):
+    # Swift JSONEncoder emits U+2028/U+2029 raw; str.splitlines() would cut the
+    # JSON string there and raise "Unterminated string starting at: ...".
+    import json as _json
+    import subprocess as _sp
+
+    from app.engines import vision_engine
+
+    row = {"image": "p.png", "lines": [{"text": "prima seconda", "confidence": 0.9,
+                                        "box": {"x": 0, "y": 0, "w": 1, "h": 1}}],
+           "blocks": [], "error": None}
+    stdout = _json.dumps(row, ensure_ascii=False) + "\n{\"peak_footprint\": 1}\n"
+    monkeypatch.setattr(vision_engine.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 0, stdout=stdout, stderr=""))
+    monkeypatch.setattr(vision_engine.VisionEngine, "run", lambda self, fn: fn(None))
+    rows = vision_engine.VisionEngine().recognize([Path("p.png")])
+    assert rows[0]["lines"][0]["text"] == "prima seconda"
+
+
 # ------------------------------------------------------------------ analyzer
 @pytest.mark.parametrize("name,family,kinds,error", [
     ("digital_it.pdf", "pdf", {"digital": 2}, False),

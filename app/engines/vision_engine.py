@@ -116,7 +116,9 @@ class VisionEngine(Engine):
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60 + 30 * len(images))
             if proc.returncode != 0:
                 raise RuntimeError(f"vision helper failed: {proc.stderr.strip()[:500]}")
-            rows = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+            # split("\n") only: splitlines() also breaks on U+2028/U+2029, which the
+            # Swift JSONEncoder emits raw inside OCR text -> truncated JSON lines.
+            rows = [json.loads(line) for line in proc.stdout.split("\n") if line.strip()]
             for r in rows:
                 if "peak_footprint" in r:
                     self.child_peak = max(self.child_peak, r["peak_footprint"])
