@@ -1,0 +1,36 @@
+Relazione tecnica sul consumo energetico
+Introduzione
+Questa relazione descrive il consumo energetico degli edifici comunali nel corso dell'anno. L'analisi è stata condotta su dodici strutture, tra cui scuole, uffici e impianti sportivi.
+I dati sono stati raccolti mensilmente dai contatori elettrici e termici. Ogni valore è stato verificato confrontando le letture con le fatture dei fornitori.
+Metodologia
+Per ciascun edificio abbiamo calcolato l'intensità energetica, cioè il rapporto tra energia consumata e superficie utile. Questo indicatore permette di confrontare strutture di dimensioni diverse.
+Le misure anomale, dovute a guasti o letture mancanti, sono state sostituite con la media dei mesi adiacenti.
+Edificio Superficie (m²) Consumo (kWh) Intensità
+Scuola Rossi 2450 182300 74,4
+Municipio 3120 251900 80,7
+Palestra Nord 1800 96400 53,6
+Biblioteca 950 41200 43,4
+Risultati
+La palestra e la biblioteca mostrano i valori più bassi grazie ai recenti lavori di isolamento. Il municipio, invece, presenta l'intensità più elevata a causa degli impianti di climatizzazione obsoleti.
+Conclusioni
+Si raccomanda di sostituire le caldaie del municipio entro il prossimo esercizio e di installare sensori di presenza negli uffici. Il risparmio stimato è pari al diciotto per cento.
+Sostituzione delle caldaie con pompe di calore.
+Installazione di pannelli fotovoltaici sulle coperture.
+Monitoraggio continuo dei consumi con report trimestrali.
+Field Notes on Coastal Erosion Monitoring
+Coastal erosion is measured by comparing shoreline positions over time. Our team surveyed four beaches between March and October, using fixed markers and satellite positioning.
+The northern beach lost an average of 1.8 metres of width, mostly after two storms in late September. The southern beaches were stable, protected by a natural reef that dissipates wave energy.
+Sediment samples were collected at low tide along transects perpendicular to the shore. Grain size analysis showed coarser sand where wave action was strongest.
+Volunteers from local schools helped record observations, which improved coverage on weekends and holidays when professional staff were not available.
+We recommend repeating the survey every six months and adding drone photogrammetry to capture changes in dune height that ground measurements may miss.
+All raw measurements are archived with their timestamps so that future studies can reproduce the analysis and extend the time series.
+Beach Width change (m) Storm events
+North -1.8 2
+Central -0.6 1
+South A 0.1 0
+South B 0.0 0
+Equations used in the model
+The kinetic energy of a body is E = 1/2 m v^2, where m is the mass and v the velocity.
+The area of a circle is A = π r^2.
+The roots of a x^2 + b x + c = 0 are x = (-b ± √(b^2 - 4ac)) / 2a.
+The sum of the first n integers is n(n+1)/2.

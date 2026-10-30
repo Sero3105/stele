@@ -1,0 +1,12 @@
+Relazione tecnica sul consumo energetico
+Introduzione
+Questa relazione descrive il consumo energetico degli edifici comunali nel corso dell'anno. L'analisi è stata condotta su dodici strutture, tra cui scuole, uffici e impianti sportivi.
+I dati sono stati raccolti mensilmente dai contatori elettrici e termici. Ogni valore è stato verificato confrontando le letture con le fatture dei fornitori.
+Metodologia
+Per ciascun edificio abbiamo calcolato l'intensità energetica, cioè il rapporto tra energia consumata e superficie utile. Questo indicatore permette di confrontare strutture di dimensioni diverse.
+Le misure anomale, dovute a guasti o letture mancanti, sono state sostituite con la media dei mesi adiacenti.
+Edificio Superficie (m²) Consumo (kWh) Intensità
+Scuola Rossi 2450 182300 74,4
+Municipio 3120 251900 80,7
+Palestra Nord 1800 96400 53,6
+Biblioteca 950 41200 43,4

@@ -1,0 +1,102 @@
+{
+ "paddle_md": "# Relazione tecnica sul consumo energetico\n\n## Introduzione\n\nQuesta reazione descrive il consumo energetico degli edifici comunali nel corso dell'anno. L'analisi è stata condotta su dodici strutture. tra cui iscute, uffici e impianti sportivi.\n\nI dati sono stati raccolti mensamente dal contatori elettrici e termici. Ogni valore è stato verificato confrontando le letture con le fatture dei fornitori.\n\n## Metodologia\n\nPer ciascun edificio abbiamo calcciato l'intensita energetica, cioè il rapporto tra energia consumata e superficie utile. Questo indicatore permette di confrontare strutture di dimensioni diverse.\nLe misure animale, devute a un perlo a la\n\nLe misure animale, dovuto a guasti o letture mancanti, sono state sostituite con la media del mesi\nadiacenti\n\n| Edificio | Superficie (m²) | Consumo (kWh) | Intensita |\n|---|---|---|---|\n| Soula Rossi | 2450 | 182300 | 74.4 |\n| Municipio | 3120 | 251900 | 80.7 |\n| Palestina Nord | 1800 | 96400 | 53.6 |\n| Biblioteca | 950 | 41200 | 43.4 |",
+ "paddle_blocks": [
+  {
+   "label": "doc_title",
+   "bbox": [
+    347,
+    202,
+    1368,
+    302
+   ],
+   "conf": 0.849,
+   "task": "text",
+   "text": "Relazione tecnica sul consumo energetico"
+  },
+  {
+   "label": "paragraph_title",
+   "bbox": [
+    239,
+    293,
+    482,
+    348
+   ],
+   "conf": 0.829,
+   "task": "text",
+   "text": "Introduzione"
+  },
+  {
+   "label": "text",
+   "bbox": [
+    233,
+    354,
+    1467,
+    471
+   ],
+   "conf": 0.845,
+   "task": "text",
+   "text": "Questa reazione descrive il consumo energetico degli edifici comunali nel corso dell'anno. L'analisi è stata condotta su dodici strutture. tra cui iscute, uffici e impianti sportivi."
+  },
+  {
+   "label": "text",
+   "bbox": [
+    230,
+    439,
+    1431,
+    552
+   ],
+   "conf": 0.81,
+   "task": "text",
+   "text": "I dati sono stati raccolti mensamente dal contatori elettrici e termici. Ogni valore è stato verificato confrontando le letture con le fatture dei fornitori."
+  },
+  {
+   "label": "paragraph_title",
+   "bbox": [
+    231,
+    542,
+    471,
+    600
+   ],
+   "conf": 0.839,
+   "task": "text",
+   "text": "Metodologia"
+  },
+  {
+   "label": "text",
+   "bbox": [
+    225,
+    602,
+    1454,
+    725
+   ],
+   "conf": 0.805,
+   "task": "text",
+   "text": "Per ciascun edificio abbiamo calcciato l'intensita energetica, cioè il rapporto tra energia consumata e superficie utile. Questo indicatore permette di confrontare strutture di dimensioni diverse.\nLe misure animale, devute a un perlo a la"
+  },
+  {
+   "label": "text",
+   "bbox": [
+    221,
+    691,
+    1447,
+    800
+   ],
+   "conf": 0.744,
+   "task": "text",
+   "text": "Le misure animale, dovuto a guasti o letture mancanti, sono state sostituite con la media del mesi\nadiacenti"
+  },
+  {
+   "label": "table",
+   "bbox": [
+    214,
+    781,
+    1057,
+    1076
+   ],
+   "conf": 0.94,
+   "task": "table",
+   "text": "| Edificio | Superficie (m²) | Consumo (kWh) | Intensita |\n|---|---|---|---|\n| Soula Rossi | 2450 | 182300 | 74.4 |\n| Municipio | 3120 | 251900 | 80.7 |\n| Palestina Nord | 1800 | 96400 | 53.6 |\n| Biblioteca | 950 | 41200 | 43.4 |"
+  }
+ ],
+ "glm_md": "Relazione tecnica sul consumo energetico\n\nIntroduzione\n\nQuesta relazione descrive il consumo energetico degli edifici comunali nel corso dell'anno. L'analisi è stata condotta su dodici strutture, tra cui scuole, uffici e implanti sportivi.\n\nI dati sono stati raccolti mensilmente dal contatori elettrici e termici. Ogni valore è stato verificato confrontando le letture con le fatture dei fornitori.\n\nMetodologia\n\nPer classun edificio abbiamo calculato l'intensità energetica, ciò il rapporto tra energia consumata e superficie utile. Questo indicatore permette di confrontare strutture di dimensioni diverse.\n\nLe misure anomale, dovute a guasti o letture mancanti, sono state sostituite con la media dei mesi adiacenti.\n\nEdificio Superficie (m³) Consumo (kWh) Intensità\n\nScuola Rossi 2450 182300 74,4\n\nMunicipio 3120 251900 80,7\n\nPalestra Nord 1800 96400 53,6\n\nBiblioteca 950 41200 43,4"
+}

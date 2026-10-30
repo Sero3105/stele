@@ -1,0 +1,5 @@
+Equations used in the model
+The kinetic energy of a body is E = 1/2 m v^2, where m is the mass and v the velocity.
+The area of a circle is A = π r^2.
+The roots of a x^2 + b x + c = 0 are x = (-b ± √(b^2 - 4ac)) / 2a.
+The sum of the first n integers is n(n+1)/2.
