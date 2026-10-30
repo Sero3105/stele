@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stele</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img class="logo" src="/static/logo.svg" alt="" width="40" height="40">
+    <div><h1>Stele</h1><p>PDF, scansioni, Office e immagini in Markdown — tutto sul tuo Mac, nulla in rete.</p></div>
+  </div>
+  <button id="toggle-res" class="ghost" aria-expanded="true" aria-controls="resources">Risorse</button>
+</header>
+
+<main class="layout">
+  <section class="work">
+    <div class="card">
+      <div id="drop" class="drop" tabindex="0" role="button" aria-label="Trascina qui file o cartelle, oppure premi Invio per sceglierli">
+        <div class="drop-icon" aria-hidden="true">⇪</div>
+        <strong>Trascina qui file o cartelle</strong>
+        <span>oppure</span>
+        <div class="row">
+          <label class="btn">Scegli file<input id="pick-files" type="file" multiple hidden></label>
+          <label class="btn">Scegli cartella<input id="pick-folder" type="file" webkitdirectory multiple hidden></label>
+        </div>
+        <small>PDF (digitali, scansionati, misti) · DOCX · PPTX · XLSX · DOC · RTF · ODT · HTML · CSV · TXT · MD · PNG · JPG · TIFF · BMP</small>
+      </div>
+
+      <div id="selection" class="selection hidden">
+        <div class="sel-head">
+          <strong id="sel-count"></strong>
+          <button id="sel-clear" class="link">Svuota</button>
+        </div>
+        <ul id="sel-types" class="chips"></ul>
+      </div>
+
+      <fieldset class="modes">
+        <legend>Modalità</legend>
+        <label class="mode"><input type="radio" name="mode" value="auto" checked>
+          <span><b>Automatica</b> — consigliata: sceglie il metodo migliore per ogni pagina</span></label>
+        <label class="mode"><input type="radio" name="mode" value="fast">
+          <span><b>Veloce</b> — risultati rapidi, meno accurata su tabelle e scansioni difficili</span></label>
+        <label class="mode"><input type="radio" name="mode" value="advanced">
+          <span><b>Avanzata</b> — massima accuratezza su scansioni, tabelle e formule, più lenta</span></label>
+      </fieldset>
+      <button id="start" class="primary" disabled>Converti</button>
+      <div id="upload-status" class="muted" aria-live="polite"></div>
+    </div>
+
+    <div id="job" class="card hidden" aria-live="polite">
+      <div class="job-head">
+        <div>
+          <h2 id="job-title">Conversione</h2>
+          <div id="job-summary" class="summary"></div>
+        </div>
+        <div class="row">
+          <button id="job-cancel" class="ghost">Annulla</button>
+          <a id="job-zip" class="btn primary big disabled" href="#" aria-disabled="true">Scarica ZIP</a>
+        </div>
+      </div>
+      <div class="bar" role="progressbar" aria-label="Avanzamento"><div id="job-bar"></div></div>
+      <div id="job-message" class="message hidden"></div>
+      <div class="table-wrap">
+        <table class="files">
+          <thead><tr><th>Documento</th><th>Stato</th><th>Pagine</th><th>Tempo</th><th><span class="sr">Azioni</span></th></tr></thead>
+          <tbody id="files"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Conversioni recenti</h2>
+      <ul id="history" class="history"></ul>
+      <small class="muted">Le conversioni vengono eliminate automaticamente dopo 7 giorni.</small>
+    </div>
+  </section>
+
+  <aside id="resources" class="card resources">
+    <h2>Risorse</h2>
+    <div class="metric">
+      <div class="metric-head"><span>Memoria in uso</span><b id="mem-text">–</b></div>
+      <div class="gauge"><div id="mem-bar"></div><i id="mem-emergency" title="Oltre questa soglia nessuna nuova conversione parte"></i></div>
+      <dl id="mem-detail" class="kv"></dl>
+    </div>
+    <div class="metric">
+      <div class="metric-head"><span>GPU</span><b id="gpu-text">–</b></div>
+      <div class="gauge"><div id="gpu-bar"></div></div>
+    </div>
+    <div class="metric">
+      <div class="metric-head"><span>CPU</span><b id="cpu-text">–</b></div>
+      <div class="gauge"><div id="cpu-bar"></div></div>
+    </div>
+    <h3>Coda</h3>
+    <div id="queue" class="counts"></div>
+    <div id="engine-warning" class="err small hidden"></div>
+  </aside>
+</main>
+
+<dialog id="preview">
+  <div class="dlg-head">
+    <strong id="preview-title"></strong>
+    <div class="row">
+      <button id="preview-raw" class="ghost">Sorgente Markdown</button>
+      <button id="preview-close" class="ghost" aria-label="Chiudi anteprima">✕</button>
+    </div>
+  </div>
+  <iframe id="preview-frame" sandbox="allow-same-origin" title="Anteprima del documento"></iframe>
+  <pre id="preview-src" class="hidden"></pre>
+</dialog>
+
+<script src="/static/markdown.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
