@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-label="Stele — documenti in Markdown, in locale">
+  <rect width="1280" height="320" rx="24" fill="#0B0D10"/>
+  <!-- mark -->
+  <g transform="translate(322 64) scale(1.6)" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M43 22h29l5 6 4-3 8 11 2 70H38z" fill="#141920" stroke="#E9E6DF" stroke-width="3"/>
+    <path d="M55 35l-3 17M63 35l-3 17M49 40.5h17M48 46.5h17" stroke="#3FB7A6" stroke-width="3"/>
+    <path d="M50 66h28M50 76h24M50 86h16" stroke="#8B949E" stroke-width="3"/>
+  </g>
+  <!-- wordmark STELE, monoline paths (no font dependency) -->
+  <g transform="translate(522 108)" fill="none" stroke="#ECEAE6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M38 9C34 3 27 0 20 0 10 0 4 6 4 15c0 19 34 11 34 30 0 9-7 15-18 15-8 0-15-4-18-10"/>
+    <path transform="translate(70 0)" d="M0 0h42M21 0v60"/>
+    <path transform="translate(140 0)" d="M34 0H4v60h30M4 30h24"/>
+    <path transform="translate(202 0)" d="M4 0v60h30"/>
+    <path transform="translate(264 0)" d="M34 0H4v60h30M4 30h24"/>
+  </g>
+  <text x="524" y="214" fill="#7D8590" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="21" letter-spacing="1.2">documenti in markdown, sul tuo mac</text>
+</svg>

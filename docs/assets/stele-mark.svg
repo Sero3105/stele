@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Stele">
+  <rect width="128" height="128" rx="28" fill="#0E1116"/>
+  <!-- a stone slab, tapering upward, with a broken corner — also a page with its corner turned -->
+  <path d="M43 22h29l5 6 4-3 8 11 2 70H38z" fill="#161B22" stroke="#E9E6DF" stroke-width="4" stroke-linejoin="round"/>
+  <!-- the inscription: a Markdown heading mark and lines of text -->
+  <path d="M55 35l-3 17M63 35l-3 17M49 40.5h17M48 46.5h17" stroke="#3FB7A6" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M50 66h28M50 76h24M50 86h16" stroke="#8B949E" stroke-width="3.5" stroke-linecap="round"/>
+</svg>
