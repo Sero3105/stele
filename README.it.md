@@ -3,16 +3,21 @@
 </p>
 
 <p align="center">
+  <a href="README.md">English</a> · <strong>Italiano</strong>
+</p>
+
+<p align="center">
   <strong>PDF, scansioni, Office e immagini in Markdown pulito.</strong><br>
   Su Apple Silicon, completamente offline.
 </p>
 
 <p align="center">
+  <a href="https://github.com/Sero3105/stele/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Sero3105/stele/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Sero3105/stele/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Sero3105/stele?style=flat-square&color=3fb7a6"></a>
   <img alt="macOS · Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-0d1117?style=flat-square&logo=apple&logoColor=white">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-0d1117?style=flat-square&logo=python&logoColor=white">
   <img alt="MLX · Metal" src="https://img.shields.io/badge/MLX-Metal-0d1117?style=flat-square">
   <img alt="100% locale" src="https://img.shields.io/badge/100%25-locale-3fb7a6?style=flat-square">
-  <img alt="203 test" src="https://img.shields.io/badge/test-203%20passati-3fb7a6?style=flat-square">
 </p>
 
 **Stele** converte PDF, scansioni, documenti Office e immagini in un unico documento
@@ -25,9 +30,9 @@ scansioni difficili. Niente cloud e niente API: il server ascolta solo su `127.0
 i modelli si scaricano una volta e l'app lavora offline entro un budget di memoria definito.
 
 <p align="center">
-  <img src="docs/assets/screenshot-app.png" alt="Interfaccia di Stele dopo la conversione di una cartella" width="100%">
+  <img src="docs/assets/demo.gif" alt="Una cartella trascinata in Stele: cinque documenti convertiti e l'anteprima di un grafico con la sua tabella dei dati" width="100%">
 </p>
-<p align="center"><em>Conversione completata: documenti, anteprime e download ZIP da un'unica schermata.</em></p>
+<p align="center"><em>Una cartella con PDF, scansioni, slide e immagini: conversione in modalità automatica e anteprima del risultato.</em></p>
 
 ## Indice
 
@@ -37,6 +42,7 @@ i modelli si scaricano una volta e l'app lavora offline entro un budget di memor
 - [Risultato](#risultato)
 - [Formati supportati](#formati-supportati)
 - [Come funziona](#come-funziona)
+- [Decisioni tecniche](#decisioni-tecniche)
 - [Motori e modelli](#motori-e-modelli)
 - [Memoria e prestazioni](#memoria-e-prestazioni)
 - [Dati, privacy e configurazione](#dati-privacy-e-configurazione)
@@ -66,11 +72,16 @@ i modelli si scaricano una volta e l'app lavora offline entro un budget di memor
 di Xcode (`xcode-select --install`).
 
 ```bash
-git clone <url-del-repository> stele && cd stele
+git clone https://github.com/Sero3105/stele.git && cd stele
 make install   # ambiente Python 3.12, dipendenze bloccate e helper nativo Apple Vision
 make models    # download e verifica dei modelli in ./models (~2,6 GB, unico passo online)
 make run       # avvia il server, poi apri http://127.0.0.1:8000
+make app       # facoltativo: Stele.app nella barra dei menu, senza terminale
 ```
+
+**Stele.app** è un'icona nella barra dei menu: all'avvio fa partire il server e apre il
+browser, dal menu apri l'interfaccia, la cartella dei dati o il log, e con *Esci* il server si
+ferma. Puoi trascinarla in Applicazioni; se sposti la cartella del progetto, rifai `make app`.
 
 Trascina file o cartelle nella pagina, scegli la modalità e premi **Converti**. Al termine
 puoi scaricare l'intero **ZIP** oppure aprire l'anteprima e scaricare il singolo documento.
@@ -121,7 +132,8 @@ conversione.zip
 - **Markdown uniforme** con qualsiasi motore: titoli senza salti di livello, paragrafi e
   tabelle spezzati tra pagine ricomposti, numeri di pagina e intestazioni ripetute rimossi,
   elenchi, tabelle e formule `$$…$$` in un'unica forma. Titolo, autore e data diventano
-  front matter YAML (le "proprietà" di Obsidian) solo se presenti nel file.
+  front matter YAML (le "proprietà" di Obsidian) solo se presenti nel file. I file Markdown
+  vengono pubblicati così come sono: front matter, callout e checkbox restano intatti.
 - **Tabelle** — Sulle scansioni degradate la struttura viene da PaddleOCR-VL e il testo da
   GLM-OCR, senza perdere né aggiungere numeri. Se la ricostruzione non è sicura, restano
   righe leggibili al posto di una tabella inaffidabile.
@@ -138,7 +150,7 @@ conversione.zip
 |---|---|
 | PDF | Digitali, scansionati, misti, multipagina, con tabelle, formule, grafici o due colonne |
 | Office | DOCX, PPTX, XLSX · DOC, RTF, ODT tramite `textutil` di macOS |
-| Testo | HTML, CSV, TXT, Markdown |
+| Testo | HTML, CSV, TXT, Markdown (incluse le immagini collegate accanto al file) |
 | Immagini | PNG, JPG, TIFF (anche multipagina), BMP |
 
 > PPT, XLS, ODP e ODS richiedono LibreOffice (`brew install --cask libreoffice`).
@@ -165,6 +177,22 @@ per motore. Il controllo analizza il testo prodotto — dizionario italiano/ingl
 caratteri spazzatura e cicli di ripetizione tipici dei VLM — invece di fidarsi della
 "confidence" dichiarata dai motori: Docling, ad esempio, assegnava 1,0 a una pagina con
 il 20% di caratteri sbagliati.
+
+I file vengono distribuiti a turno tra i caricamenti: un file inviato dopo una cartella di 25
+parte al primo worker libero, invece di aspettare l'intera cartella.
+
+## Decisioni tecniche
+
+Ogni scelta è stata misurata, non presunta: stessa macchina (M4 Pro, 24 GB), stesso dataset.
+Metodo e tabelle complete in [benchmarks/REPORT.md](benchmarks/REPORT.md).
+
+| Decisione | Al posto di | Misura |
+|---|---|---|
+| Controllo qualità sul testo prodotto | Fidarsi della confidence dei motori | Docling dichiarava `ocr_score` 1,0 su una pagina con il 20% di caratteri sbagliati |
+| Modello grande solo sulle pagine che ne hanno bisogno | VLM su ogni pagina | Scansione di prosa da 12 pagine: **6,0 s invece di 32,9 s** (5,5×), CER 0 in entrambi i casi |
+| GLM-OCR sulla pagina ridotta a 1024 px | Risoluzione piena | **1,9 s/pagina invece di 13,4**, e il CER più basso di tutti i motori sulle scansioni degradate (0,9–1,6%) |
+| Pesi MLX 4-bit | Modelli originali | CER entro ±0,5 punti, −1,1 GB (PaddleOCR-VL) e −0,9 GB (GLM-OCR), 20–40% più veloci |
+| Budget sul *phys_footprint* del kernel | RSS | L'RSS non vede i buffer Metal/MLX; così 900 pagine in parallelo restano a 7,7 GB su 20 |
 
 ## Motori e modelli
 
@@ -244,10 +272,10 @@ app/
   resources.py     budget di memoria, lease, residenza dei modelli
   models.py        registro, download, verifica e pulizia dei modelli
   engines/         Docling, Apple Vision, VLM su MLX
-native/            helper Swift per Apple Vision
+native/            helper Swift per Apple Vision, app nella barra dei menu
 frontend/          HTML, CSS e JS senza dipendenze esterne
 benchmarks/        dataset generato, benchmark, REPORT.md
-tests/             203 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
+tests/             208 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
                    kill -9 e ripresa, browser (Chrome e WebKit)
 ```
 
@@ -256,6 +284,9 @@ make test                                          # suite completa
 .venv/bin/python -m pytest tests/test_browser.py   # interfaccia in Chrome e WebKit (Playwright)
 make bench                                         # benchmark di motori, modelli e scheduler
 ```
+
+La CI esegue l'intera suite, modelli compresi, su un runner GitHub con Apple Silicon
+(`macos-26`).
 
 Scelte tecniche, misure e limiti sono documentati in
 [benchmarks/REPORT.md](benchmarks/REPORT.md).
