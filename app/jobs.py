@@ -207,6 +207,7 @@ class Scheduler:
         self._threads: list[threading.Thread] = []
 
     def start(self) -> None:
+        self._stop.clear()  # restartable: the server lifespan (and each TestClient) calls start/stop
         recovered = self.store.recover()
         if recovered:
             log.info("re-queued %d interrupted conversions", recovered)

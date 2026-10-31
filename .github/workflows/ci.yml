@@ -27,7 +27,7 @@ jobs:
     name: test (${{ matrix.shard }})
     # Apple Silicon + macOS 26: Apple Vision RecognizeDocumentsRequest, MLX on Metal, NSSpellChecker.
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 20  # a shard takes ~5 min; a hang should fail fast
     env:
       STELE_MEMORY_BUDGET_GB: "6"  # hosted runner has 7 GB of RAM
     steps:
