@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    # Apple Silicon + macOS 26: Apple Vision RecognizeDocumentsRequest, MLX on Metal, NSSpellChecker.
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      STELE_MEMORY_BUDGET_GB: "6"  # hosted runner has 7 GB of RAM
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # ~2.6 GB of weights: downloaded once, reused until the pinned revisions in app/models.py change.
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('app/models.py') }}
+
+      - name: Install (venv, dependencies, Apple Vision helper)
+        run: make install
+
+      - name: Download and verify models
+        run: make models
+
+      - name: WebKit for the browser tests (Chrome is preinstalled)
+        run: .venv/bin/playwright install webkit
+
+      - name: Tests
+        run: make test
+
+      - name: Dataset generation is deterministic
+        run: git diff --exit-code benchmarks/data
