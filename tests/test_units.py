@@ -29,6 +29,13 @@ def test_spellcheck_flags_ocr_errors():
     assert misspelled_ratio(bad, "it")[0] > 0.1
 
 
+def test_spellcheck_counts_utf16_units():
+    # Emoji and math letters like 𝑥 are 2 UTF-16 units: the last words must still be checked.
+    text = "Questa relazione descrive il consumo energetico degli edifici comunali nel cimatizzazione."
+    assert misspelled_ratio("😀" * 20 + " " + text, "it") == misspelled_ratio(text, "it")
+    assert misspelled_ratio(text, "it")[0] > 0
+
+
 def test_spellcheck_thread_safe():
     out = []
     ts = [threading.Thread(target=lambda: out.append(misspelled_ratio("The northern beach lost width " * 10, "en")))
@@ -214,6 +221,41 @@ def test_duplicate_names_and_restart_recovery(tmp_path):
     store2 = JobStore(tmp_path / "db.sqlite3")  # simulated restart
     assert store2.recover() == 1
     assert store2.file(f1)["state"] == "queued"
+
+
+def test_engines_never_load_models_concurrently():
+    from app.engines.base import Engine
+    active, peak, lock = [0], [0], threading.Lock()
+
+    class Slow(Engine):
+        def _load(self):
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.2)
+            with lock:
+                active[0] -= 1
+            return object()
+
+    engines = [Slow() for _ in range(3)]
+    for i, e in enumerate(engines):
+        e.name = f"slow{i}"
+    ts = [threading.Thread(target=e.run, args=(lambda m: m,)) for e in engines]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    [e.unload() for e in engines]
+    assert peak[0] == 1
+
+
+def test_claim_round_robin_across_jobs(tmp_path):
+    """A single file uploaded after a big folder must not wait for the whole folder."""
+    store = JobStore(tmp_path / "db.sqlite3")
+    big, small = store.create_job("auto"), store.create_job("auto")
+    folder = [store.add_file(big, PurePosixPath(f"dir/{i}.pdf"), 1)[0] for i in range(25)]
+    single = store.add_file(small, PurePosixPath("solo.pdf"), 1)[0]
+    for fid in folder + [single]:
+        store.mark_uploaded(fid, 1)
+    assert [store.claim()["id"] for _ in range(4)] == [folder[0], single, folder[1], folder[2]]
 
 
 def test_spellcheck_first_use_from_many_threads_in_fresh_process():

@@ -21,13 +21,15 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 from PIL import Image
 
 from app import charts, config, markdown, router
-from app.analyzer import FileInfo, analyze, render_pages, soffice
+from app.analyzer import IMAGE, FileInfo, analyze, render_pages, soffice
 from app.checkpoint import Checkpoint, atomic_write
 from app.engines.base import PageOutput
 from app.engines.docling_engine import DoclingEngine, page_outputs
@@ -81,6 +83,7 @@ class Context:
     work_dir: Path                      # internal: checkpoints, assets in progress, report
     name: str                           # original file name; the Markdown is <stem>.md
     mode: str = router.AUTO
+    upload_root: Path | None = None     # images linked by Markdown/HTML may come from here (default: the file's folder)
     progress: Callable[[dict], None] = lambda _: None
     cancelled: Callable[[], bool] = lambda: False
     engines_used: set[str] = field(default_factory=set)
@@ -134,11 +137,63 @@ def _ink(path: Path) -> float:
         return float((np.asarray(im.convert("L").resize((200, 280))) < 128).mean())
 
 
-def local_asset(base: Path, ref: str) -> Path | None:
-    """The file an image link points to, only if it lies inside `base`: a document's own text can
-    hold links like /Users/x/.ssh/id_rsa or ../../x, which must never be read or published."""
+def local_asset(base: Path, ref: str, root: Path | None = None) -> Path | None:
+    """The file an image link points to (relative to `base`), only if it lies inside `root`
+    (default `base`): a document's own text can hold links like /Users/x/.ssh/id_rsa or ../../x,
+    which must never be read or published."""
     path = (base / ref).resolve()
-    return path if path.is_relative_to(base.resolve()) and path.is_file() else None
+    return path if path.is_relative_to((root or base).resolve()) and path.is_file() else None
+
+
+_URL = re.compile(r"[a-z][a-z0-9+.-]*:", re.I)  # http:, https:, data:, file: ... never a local file name
+_HOLE = "<!-- image -->"
+
+
+class _ImgTags(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.imgs: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "img":
+            a = dict(attrs)
+            self.imgs.append(((a.get("alt") or "").strip(), a.get("src") or ""))
+
+
+def link_images(md: str, src: Path, root: Path, assets: Path) -> str:
+    """Markdown and HTML keep their pictures as separate files next to them: copy the ones inside
+    `root` (the upload folder) into the work assets and point the links there."""
+    copied: dict[Path, str] = {}
+
+    def asset(ref: str) -> str | None:
+        if _URL.match(ref):
+            return None
+        path = local_asset(src.parent, unquote(ref.split("#")[0].split("?")[0]), root)
+        if path is None or path.suffix.lower() not in IMAGE:
+            return None
+        if path not in copied:
+            assets.mkdir(parents=True, exist_ok=True)
+            name = f"linked_{len(copied) + 1:03d}{path.suffix.lower()}"
+            shutil.copy2(path, assets / name)
+            copied[path] = f"{assets.name}/{name}"
+        return copied[path]
+
+    if src.suffix.lower() not in (".html", ".htm"):
+        return markdown.rewrite_images(md, {r: new for r in markdown.image_refs(md) if (new := asset(r))})
+    # Docling turns each <img> into "<!-- image -->", its alt text as a line before: put the links back.
+    parser = _ImgTags()
+    parser.feed(src.read_text(encoding="utf-8", errors="replace"))
+    parts = md.split(_HOLE)
+    if len(parts) != len(parser.imgs) + 1:  # can't pair placeholders with tags: leave them
+        return md
+    out = [parts[0]]
+    for (alt, ref), after in zip(parser.imgs, parts[1:]):
+        new = asset(ref)
+        if new and alt and ("\n" + out[-1]).endswith(f"\n{alt}\n\n"):
+            out[-1] = out[-1][:-len(alt) - 2]
+        out.append(f"![{alt.replace('[', '(').replace(']', ')')}]({new})" if new else _HOLE)
+        out.append(after)
+    return "".join(out)
 
 
 def _score(out: PageOutput, lang: str | None) -> None:
@@ -461,6 +516,8 @@ def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, char
     mapping: dict[str, str | None] = {}
     counters = {"grafico": 0, "immagine": 0}
     for ref in dict.fromkeys(markdown.image_refs(md)):
+        if _URL.match(ref):  # web image (e.g. in a Markdown note): keep the link as it is
+            continue
         src = local_asset(ctx.work_dir, ref)
         if src is None:
             mapping[ref] = None
@@ -513,9 +570,13 @@ def convert_file(src: Path, ctx: Context) -> dict:
             pages = convert_pdf(pdf, info, ctx, tmp, assets, cp)
         else:
             pages = convert_other(src, info, ctx, tmp, assets)
+        if info.ext in (".md", ".html", ".htm"):
+            for p in pages:
+                p.markdown = link_images(p.markdown, src, ctx.upload_root or src.parent, assets)
         ctx.check()
-        chart_refs = enrich_images(pages, ctx.work_dir, ctx) if ctx.mode != router.FAST else set()
-        md = markdown.assemble([p.markdown for p in pages], source_metadata(src, info))
+        as_is = info.ext == ".md"  # already Markdown: front matter, callouts and checkboxes stay as written
+        chart_refs = enrich_images(pages, ctx.work_dir, ctx) if ctx.mode != router.FAST and not as_is else set()
+        md = pages[0].markdown if as_is else markdown.assemble([p.markdown for p in pages], source_metadata(src, info))
         md_path = publish(md, pages, info, ctx, chart_refs, time.time() - t0)
         cp.clear()
     report = {

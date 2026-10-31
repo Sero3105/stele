@@ -89,12 +89,13 @@ def misspelled_ratio(text: str, lang: str | None) -> tuple[float, int]:
     if not plain:
         return 0.0, 0
     best = (1.0, 0)
+    length = len(plain.encode("utf-16-le")) // 2  # NSString counts UTF-16 units: an emoji or 𝑥 is 2
     with _spell_lock:  # NSSpellChecker is a shared AppKit object: one caller at a time
         sc = NSSpellChecker.sharedSpellChecker()
         for code in ([lang] if lang else ["it", "en"]):
             sc.setLanguage_(code)
             res, _, words = sc.checkString_range_types_options_inSpellDocumentWithTag_orthography_wordCount_(
-                plain, NSMakeRange(0, len(plain)), NSTextCheckingTypeSpelling, None, 0, None, None)
+                plain, NSMakeRange(0, length), NSTextCheckingTypeSpelling, None, 0, None, None)
             ratio = len(res) / max(1, words)
             best = min(best, (ratio, words))
     return round(best[0], 4), best[1]

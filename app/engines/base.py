@@ -19,6 +19,11 @@ class PageOutput:
     data: dict[str, Any] = field(default_factory=dict)  # engine-specific structure for the JSON export
 
 
+# One model load at a time across all engines: loads import transformers lazily, and its lazy
+# module isn't thread-safe ("cannot import name 'AutoProcessor'" when Docling and a VLM loaded together).
+_loading = threading.Lock()
+
+
 class Engine:
     """An engine owns at most one set of loaded weights and declares what it costs.
 
@@ -55,7 +60,8 @@ class Engine:
                       (working_mb or r.estimated_working_memory_mb) * config.MB, r.max_parallel_jobs, cancelled):
             with self._load_lock:
                 if self._model is None:
-                    self._model = self._load()
+                    with _loading:
+                        self._model = self._load()
                     rm.model_now_resident(self.name, r.model_memory_mb * config.MB, self.unload)
                 model = self._model
             return fn(model)

@@ -10,6 +10,7 @@ const NA = "Non disponibile";
 let selected = [];          // [{file, path}]
 let currentJob = null;
 let pollTimer = null;
+let uploading = false;      // the selection stays until its upload succeeds: no second click meanwhile
 
 // ---------------------------------------------------------------- selection
 function addFiles(items) {
@@ -23,7 +24,7 @@ function addFiles(items) {
 
 function renderSelection() {
   $("#selection").classList.toggle("hidden", !selected.length);
-  $("#start").disabled = !selected.length;
+  $("#start").disabled = !selected.length || uploading;
   const total = selected.reduce((a, s) => a + s.file.size, 0);
   $("#sel-count").textContent = `${selected.length} file selezionati · ${fmtBytes(total)}`;
   const types = {};
@@ -70,13 +71,14 @@ function errorText(body) { try { return JSON.parse(body).detail; } catch { retur
 
 $("#start").onclick = async () => {
   const mode = document.querySelector("input[name=mode]:checked").value;
-  const files = selected; selected = []; renderSelection();
-  $("#start").disabled = true;
+  const files = selected;
+  uploading = true; renderSelection();
   const status = $("#upload-status");
+  let job = null, accepted = 0;
   try {
     const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
     if (!r.ok) throw new Error(errorText(await r.text()));
-    const job = await r.json();
+    job = await r.json();
     openJob(job.id);
     const total = files.reduce((a, s) => a + s.file.size, 0);
     let sent = 0;
@@ -92,11 +94,20 @@ $("#start").onclick = async () => {
       const res = await postForm(`/api/jobs/${job.id}/files`, form, l => { status.textContent = `Caricamento ${fmtBytes(base + l)} di ${fmtBytes(total)}…`; });
       sent += bytes;
       rejected.push(...res.rejected);
+      accepted += res.accepted.length;
       poll();
     }
+    selected = selected.filter(s => !files.includes(s)); // keeps files added during the upload
     status.textContent = rejected.length ? `File non accettati: ${rejected.map(r => `${r.name} (${r.error})`).join("; ")}` : "";
   } catch (err) {
     status.textContent = `Errore: ${err.message}`;
+  } finally {
+    if (job && !accepted) { // nothing to convert: drop the empty job instead of "Caricamento in corso…" forever
+      await fetch(`/api/jobs/${job.id}`, { method: "DELETE" }).catch(() => {});
+      if (currentJob === job.id) { currentJob = null; clearTimeout(pollTimer); $("#job").classList.add("hidden"); }
+      loadHistory();
+    }
+    uploading = false; renderSelection();
   }
 };
 
@@ -174,9 +185,12 @@ async function preview(fid, name) {
   const r = await fetch(`/api/files/${fid}/markdown`);
   const md = await r.text();
   $("#preview-title").textContent = name;
-  $("#preview-src").textContent = md;
-  $("#preview-src").classList.add("hidden");
-  $("#preview-frame").classList.remove("hidden");
+  $("#preview-raw").classList.toggle("hidden", !r.ok);
+  $("#preview-raw").textContent = "Sorgente Markdown";
+  $("#preview-src").textContent = r.ok ? md : `Anteprima non disponibile: ${errorText(md) || r.statusText}`;
+  $("#preview-src").classList.toggle("hidden", r.ok);
+  $("#preview-frame").classList.toggle("hidden", !r.ok);
+  if (!r.ok) { $("#preview").showModal(); return; }
   $("#preview-frame").srcdoc = `<!doctype html><html><head><meta charset="utf-8">
     <style>body{font:15px/1.6 -apple-system,system-ui,sans-serif;max-width:860px;margin:24px auto;padding:0 20px;color:#1d2330}
     table{border-collapse:collapse;margin:12px 0;font-size:14px}td,th{border:1px solid #d5dbe3;padding:4px 8px;text-align:left}th{background:#f2f5f8}

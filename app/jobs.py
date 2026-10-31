@@ -1,7 +1,8 @@
 """Job store (SQLite) and batch scheduler.
 
 A job is one upload session (files/folders + mode); each file is converted independently,
-so one failure never stops the batch. Worker threads pull queued files FIFO; how many
+so one failure never stops the batch. Worker threads pull queued files FIFO within a job and
+round-robin across jobs, so a single file is not stuck behind a big folder; how many
 actually run at once is decided by the ResourceManager leases inside the engines, so the
 thread count is only an upper bound. State lives in SQLite: after a restart, files that
 were running are re-queued and converted again.
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS files (
     engines TEXT DEFAULT '', summary TEXT, error TEXT, created REAL, started REAL, finished REAL
 );
 CREATE INDEX IF NOT EXISTS files_state ON files(state, id);
+CREATE INDEX IF NOT EXISTS files_job ON files(job_id, state);
 """
 
 
@@ -155,10 +157,14 @@ class JobStore:
         return n
 
     def claim(self) -> sqlite3.Row | None:
+        """Next file: the oldest queued one of the job with the fewest files running, so a file
+        uploaded after a 25-file folder starts at the next free worker instead of waiting for all 25."""
         with self._lock:
             row = self._db.execute(
                 "SELECT f.*, j.mode FROM files f JOIN jobs j ON j.id=f.job_id "
-                "WHERE f.state='queued' AND j.cancelled=0 ORDER BY f.id LIMIT 1").fetchone()
+                "WHERE f.id IN (SELECT MIN(id) FROM files WHERE state='queued' GROUP BY job_id) AND j.cancelled=0 "
+                "ORDER BY (SELECT COUNT(*) FROM files r WHERE r.job_id=f.job_id AND r.state='running'), f.id "
+                "LIMIT 1").fetchone()
             if row:
                 self._db.execute("UPDATE files SET state='running', started=?, stage='avvio' WHERE id=?",
                                  (time.time(), row["id"]))
@@ -274,7 +280,7 @@ class Scheduler:
             self.store.x(f"UPDATE files SET {', '.join(sets)} WHERE id=?", (*args, fid))
 
         ctx = pipeline.Context(out_dir=result_dir(job_id, fid), work_dir=config.WORK / job_id / str(fid),
-                               name=rel.name, mode=row["mode"], progress=progress,
+                               name=rel.name, mode=row["mode"], upload_root=config.UPLOADS / job_id, progress=progress,
                                cancelled=lambda: self.store.is_cancelled(job_id))
         try:
             summary = pipeline.convert_file(src, ctx)

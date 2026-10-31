@@ -61,6 +61,32 @@ def test_markdown_input(tmp_path):
     assert "# Titolo" in md and re.search(r"\|\s*1\s*\|\s*2\s*\|", md)
 
 
+def test_markdown_note_published_as_written(tmp_path):
+    note = ("---\ntags: [lavoro]\n---\n# Nota\n\n> [!note] Attenzione\n> Portare i documenti.\n\n"
+            "- [ ] da fare\n- [x] fatto\n\n![web](https://example.com/a.png)\n")
+    src = tmp_path / "nota.md"
+    src.write_text(note)
+    md, _, _ = convert(tmp_path, src)
+    assert md == note
+
+
+def test_linked_images_of_markdown_and_html_are_published(tmp_path):
+    up = tmp_path / "upload"
+    (up / "img").mkdir(parents=True)
+    Image.new("RGB", (80, 60), "red").save(up / "img" / "foto.png")
+    (tmp_path / "segreto.png").write_bytes((up / "img" / "foto.png").read_bytes())  # outside the upload
+    (up / "nota.md").write_text("Testo\n\n![foto](img/foto.png) ![x](../segreto.png)\n")
+    (up / "pagina.html").write_text('<html><body><p>Testo</p><img src="img/foto.png" alt="foto"></body></html>')
+    for name in ("nota.md", "pagina.html"):
+        out = tmp_path / name
+        s = convert_file(up / name, Context(out_dir=out, work_dir=tmp_path / f"w-{name}", name=name,
+                                            mode="fast", upload_root=up))
+        md = Path(s["markdown"]).read_text()
+        assert "![foto](assets/immagine_001.png)" in md and "<!-- image -->" not in md, md
+        assert [p.name for p in (out / "assets").iterdir()] == ["immagine_001.png"]
+    assert "segreto" not in md
+
+
 def test_scanned_formulas_go_to_paddle(tmp_path):
     src = tmp_path / "formule.png"
     page_image("digital_formula_en.pdf").save(src)

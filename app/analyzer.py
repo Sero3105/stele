@@ -17,8 +17,8 @@ OFFICE = {".docx", ".pptx", ".xlsx", ".xlsm"}
 # textutil (built into macOS) turns these into DOCX without LibreOffice.
 TEXTUTIL = {".doc", ".rtf", ".odt"}
 LIBREOFFICE_ONLY = {".ppt", ".xls", ".odp", ".ods"}
-MARKUP = {".html", ".htm", ".md", ".csv"}
-PLAIN = {".txt"}
+MARKUP = {".html", ".htm", ".csv"}
+PLAIN = {".txt", ".md"}  # .md is already Markdown: Docling would rewrite it
 
 
 @dataclass
