@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import io
 import random
+import re
 import sys
+import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
 import pypdfium2 as pdfium
 from PIL import Image, ImageFilter
+from reportlab import rl_config
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -27,6 +31,33 @@ from reportlab.platypus import (
 
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent / "data")
 STYLES = getSampleStyleSheet()
+
+# Same bytes on every run, so `make test` leaves the committed dataset untouched:
+# no creation dates or random document IDs in the generated files.
+rl_config.invariant = 1
+FIXED_TIME = time.gmtime(1767225600)  # 2026-01-01 00:00:00 UTC
+
+
+def freeze_zip(path: Path) -> None:
+    """Office files are ZIPs: fix entry timestamps and the dates in docProps/core.xml."""
+    with zipfile.ZipFile(path) as zf:
+        entries = [(i, zf.read(i)) for i in zf.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for info, data in entries:
+            if info.filename == "docProps/core.xml":
+                data = re.sub(rb"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?", b"2026-01-01T00:00:00Z", data)
+            zf.writestr(zipfile.ZipInfo(info.filename, FIXED_TIME[:6]), data, zipfile.ZIP_DEFLATED)
+
+
+def freeze_pdfium(path: Path) -> None:
+    """PDFium stamps the save time and a time-based /ID. Overwrite both in place with the same
+    byte length (padding is whitespace between tokens), so the xref offsets stay valid."""
+    def date(m: re.Match) -> bytes:
+        return (m.group(1) + b"(D:20260101000000Z)").ljust(len(m.group(0)))
+    def doc_id(m: re.Match) -> bytes:
+        return re.sub(rb"[0-9A-Fa-f]", b"0", m.group(0))
+    data = re.sub(rb"(/(?:CreationDate|ModDate))\(D:[^)]*\)", date, path.read_bytes())
+    path.write_bytes(re.sub(rb"/ID\[<[0-9A-Fa-f]+><[0-9A-Fa-f]+>\]", doc_id, data))
 
 IT_TITLE = "Relazione tecnica sul consumo energetico"
 IT_SECTIONS = [
@@ -241,7 +272,8 @@ def degrade(img: Image.Image, *, noise: float, blur: float, rotate: float, jpeg:
 
 
 def save_image_pdf(images: list[Image.Image], path: Path, dpi: int) -> None:
-    images[0].save(path, "PDF", save_all=True, append_images=images[1:], resolution=dpi)
+    images[0].save(path, "PDF", save_all=True, append_images=images[1:], resolution=dpi,
+                   creationDate=FIXED_TIME, modDate=FIXED_TIME)
 
 
 SCAN_PROFILES = {
@@ -283,6 +315,7 @@ def make_mixed_pdf() -> None:
         src.close()
     out.save(OUT / "mixed_digital_scan.pdf")
     out.close()
+    freeze_pdfium(OUT / "mixed_digital_scan.pdf")
     gt = [(OUT / f"{n}.gt.txt").read_text(encoding="utf-8") for n in ("digital_it", "digital_en_twocol", "digital_formula_en")]
     (OUT / "mixed_digital_scan.gt.txt").write_text("".join(gt), encoding="utf-8")
 
@@ -379,6 +412,8 @@ def make_office() -> None:
     for row in EN_TABLE:
         ws2.append(row)
     wb.save(OUT / "office_data.xlsx")
+    for name in ("office_report_it.docx", "office_slides_en.pptx", "office_data.xlsx"):
+        freeze_zip(OUT / name)
 
 
 def make_misc() -> None:
