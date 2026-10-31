@@ -191,7 +191,7 @@ def test_upload_limits_and_cancel(monkeypatch):
 
     from app.main import app
     monkeypatch.setattr(config, "MAX_FILE_BYTES", 10_000)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         job = client.post("/api/jobs", json={"mode": "fast"}).json()["id"]
         client.post(f"/api/jobs/{job}/cancel")  # cancel before upload: nothing may start
         r = client.post(f"/api/jobs/{job}/files", files=[
@@ -206,3 +206,19 @@ def test_upload_limits_and_cancel(monkeypatch):
         client.delete(f"/api/jobs/{job}")
         assert client.get(f"/api/jobs/{job}").status_code == 404
         assert not (config.UPLOADS / job).exists()
+
+
+def test_cancel_while_waiting_for_memory_is_cancelled_not_error(store, monkeypatch):
+    def fail(name):
+        raise InterruptedError("cancelled while queued")  # what ResourceManager raises on cancel
+    assert _run_batch(store, ["note.txt"], monkeypatch, fail)["note.txt"] == ("cancelled", None)
+
+
+def test_cleanup_removes_folders_of_deleted_jobs(store):
+    orphan, fresh = config.RESULTS / "deleted00000", config.RESULTS / "justcreated0"
+    (orphan / "1").mkdir(parents=True)
+    fresh.mkdir()
+    os.utime(orphan, (time.time() - 7200,) * 2)
+    Scheduler(store).cleanup()
+    assert not orphan.exists() and fresh.exists()  # a brand-new job's folder is never touched
+    fresh.rmdir()

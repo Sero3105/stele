@@ -12,7 +12,7 @@
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-0d1117?style=flat-square&logo=python&logoColor=white">
   <img alt="MLX · Metal" src="https://img.shields.io/badge/MLX-Metal-0d1117?style=flat-square">
   <img alt="100% locale" src="https://img.shields.io/badge/100%25-locale-3fb7a6?style=flat-square">
-  <img alt="196 test" src="https://img.shields.io/badge/test-196%20passati-3fb7a6?style=flat-square">
+  <img alt="203 test" src="https://img.shields.io/badge/test-203%20passati-3fb7a6?style=flat-square">
 </p>
 
 **Stele** converte PDF, scansioni, documenti Office e immagini in un unico documento
@@ -247,7 +247,7 @@ app/
 native/            helper Swift per Apple Vision
 frontend/          HTML, CSS e JS senza dipendenze esterne
 benchmarks/        dataset generato, benchmark, REPORT.md
-tests/             196 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
+tests/             203 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
                    kill -9 e ripresa, browser (Chrome e WebKit)
 ```
 

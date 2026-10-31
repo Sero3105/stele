@@ -166,10 +166,6 @@ class ResourceManager:
             }
 
     # ---- model residency ----------------------------------------------------------------------
-    def is_loaded(self, name: str) -> bool:
-        with self._cond:
-            return name in self._models
-
     def _pop_idle_victim(self, keep: str | None):
         """Remove the least-recently-used idle model from the registry (caller holds the lock).
 

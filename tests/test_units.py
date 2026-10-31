@@ -168,7 +168,7 @@ def test_idle_model_is_evicted_for_room():
         rm.model_now_resident("paddle", 1500 * MB, lambda: unloaded.append("paddle"))
     with rm.lease("glm", 1500 * MB, 100 * MB, 1):  # doesn't fit next to idle paddle -> evict it
         pass
-    assert unloaded == ["paddle"] and not rm.is_loaded("paddle")
+    assert unloaded == ["paddle"] and "paddle" not in [m["name"] for m in rm.snapshot()["models"]]
 
 
 def test_eviction_unload_does_not_block_model_registration():
@@ -279,3 +279,22 @@ def test_prune_removes_only_unused_repos_revisions_and_blobs(tmp_path, monkeypat
 def test_spellcheck_ignores_latex():
     md = r"The energy is $E = \frac{1}{2} m v^2$ and $$x = \sqrt{b^2 - 4ac}$$ for the roots of the equation."
     assert misspelled_ratio(md, "en")[0] == 0.0
+
+
+def test_xlsx_details_keeps_chart_sheets_in_order(tmp_path):
+    """Docling makes one page per sheet name, chart sheets included: the order must match."""
+    import openpyxl
+    from openpyxl.chart import BarChart, Reference
+
+    from app.office import xlsx_details
+    wb = openpyxl.Workbook()
+    wb.active.title = "Dati"
+    wb.active["A1"], wb.active["A2"] = 1, "=A1*2"
+    chart = BarChart()
+    chart.add_data(Reference(wb.active, min_col=1, min_row=1, max_row=2))
+    wb.create_chartsheet("Grafico").add_chart(chart)  # openpyxl can't reload an empty chart sheet
+    wb.create_sheet("Riepilogo")
+    wb.save(tmp_path / "x.xlsx")
+    sheets = xlsx_details(tmp_path / "x.xlsx")
+    assert [s["name"] for s in sheets] == ["Dati", "Grafico", "Riepilogo"]
+    assert sheets[0]["formulas"][0]["formula"] == "=A1*2" and sheets[2]["formulas"] == []

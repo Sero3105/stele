@@ -218,6 +218,13 @@ class Scheduler:
             if not downloading(job_id):
                 self.store.delete(job_id)
                 removed.append(job_id)
+        # Folders of deleted jobs: a conversion still running at delete time can publish afterwards.
+        known = {r["id"] for r in self.store.q("SELECT id FROM jobs")}
+        for root in (config.UPLOADS, config.WORK, config.RESULTS):
+            for d in root.iterdir():
+                # age check: a job created after the query above already has its folders
+                if d.is_dir() and d.name not in known and time.time() - d.stat().st_mtime > 3600:
+                    shutil.rmtree(d, ignore_errors=True)
         for d in config.TEMP.glob("tmp*"):
             if d.is_dir() and time.time() - d.stat().st_mtime > 86400:
                 shutil.rmtree(d, ignore_errors=True)
@@ -278,7 +285,7 @@ class Scheduler:
         except Busy as exc:  # another process holds this file's lock: leave it to that process
             log.warning("%s: %s", rel, exc)
             self.store.x("UPDATE files SET state='error', error=? WHERE id=?", (str(exc), fid))
-        except pipeline.Cancelled:
+        except (pipeline.Cancelled, InterruptedError):  # InterruptedError: cancelled while waiting for memory
             self.store.x("UPDATE files SET state='cancelled', finished=? WHERE id=?", (time.time(), fid))
         except Exception as exc:  # any per-file failure is recorded, the batch continues
             log.warning("conversion failed for %s: %s", rel, exc)

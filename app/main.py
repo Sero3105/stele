@@ -14,6 +14,8 @@ import psutil
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import config, models, pipeline
 from app.export import content_disposition, document_entries, folder_names, readme, stream_zip
@@ -37,6 +39,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Stele", lifespan=lifespan)
+# DNS rebinding: a web page whose domain later resolves to 127.0.0.1 reaches this server with its
+# own Host header. Only local names are accepted, so other sites can't read the documents.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 
@@ -83,7 +88,8 @@ async def upload(job_id: str, request: Request):
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with dest.open("wb") as fh:
                     await part.seek(0)
-                    shutil.copyfileobj(part.file, fh, 1024 * 1024)
+                    # off the event loop: a big file would freeze every other request meanwhile
+                    await run_in_threadpool(shutil.copyfileobj, part.file, fh, 1024 * 1024)
                 store.mark_uploaded(fid, dest.stat().st_size)
                 accepted.append({"id": fid, "name": str(rel)})
             except OSError as exc:

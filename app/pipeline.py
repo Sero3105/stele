@@ -134,6 +134,13 @@ def _ink(path: Path) -> float:
         return float((np.asarray(im.convert("L").resize((200, 280))) < 128).mean())
 
 
+def local_asset(base: Path, ref: str) -> Path | None:
+    """The file an image link points to, only if it lies inside `base`: a document's own text can
+    hold links like /Users/x/.ssh/id_rsa or ../../x, which must never be read or published."""
+    path = (base / ref).resolve()
+    return path if path.is_relative_to(base.resolve()) and path.is_file() else None
+
+
 def _score(out: PageOutput, lang: str | None) -> None:
     out.quality = text_quality(out.markdown)
     ratio, words = misspelled_ratio(out.markdown, lang)
@@ -310,7 +317,7 @@ _GENERIC_ALT = {"", "image", "chart", "figure", "picture", "immagine", "grafico"
 def enrich_images(pages: list[PageOutput], base: Path, ctx: Context) -> set[str]:
     """Read the text printed in every image of the document; for charts with readable values add
     a verified data table after the image. Returns the image refs recognised as charts."""
-    refs = [ref for p in pages for ref in markdown.image_refs(p.markdown) if (base / ref).is_file()]
+    refs = [ref for p in pages for ref in markdown.image_refs(p.markdown) if local_asset(base, ref)]
     refs = list(dict.fromkeys(refs))
     if not refs or not VISION.available()[0]:
         return set()
@@ -454,8 +461,8 @@ def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, char
     mapping: dict[str, str | None] = {}
     counters = {"grafico": 0, "immagine": 0}
     for ref in dict.fromkeys(markdown.image_refs(md)):
-        src = ctx.work_dir / ref
-        if not src.is_file():
+        src = local_asset(ctx.work_dir, ref)
+        if src is None:
             mapping[ref] = None
             continue
         kind = "grafico" if ref in chart_refs else "immagine"

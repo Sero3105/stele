@@ -232,9 +232,6 @@ class VlmEngine(Engine):
                 return out
         return self.run(work)
 
-    def page_markdown(self, image: Image.Image, assets: Path | None = None, prefix: str = "p1") -> tuple[str, dict]:
-        return self.pages_markdown([image], assets, [prefix])[0]
-
     def convert_images(self, images: list[Path], page_numbers: list[int], assets: Path | None = None) -> list[PageOutput]:
         pil = []
         for path in images:

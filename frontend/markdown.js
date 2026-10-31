@@ -9,8 +9,10 @@
   function inline(s) {
     s = esc(s);
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    // Offline preview: only the document's own assets and inline data; a remote image (tracking pixel) shows its alt text.
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, a, u) =>
-      `<img alt="${a}" src="${safeUrl(/^[a-z]+:|^\//i.test(u) ? u : assetBase + u)}">`);
+      /^data:image\//i.test(u) ? `<img alt="${a}" src="${u}">`
+        : /^[a-z][a-z0-9+.-]*:|^\//i.test(u) ? a : `<img alt="${a}" src="${assetBase + u}">`);
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => `<a href="${safeUrl(u)}" target="_blank" rel="noopener">${t}</a>`);
     s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
     return s;

@@ -18,20 +18,25 @@ def pptx_notes(path: Path) -> dict[int, str]:
 
 
 def xlsx_details(path: Path) -> list[dict]:
-    """Per sheet (workbook order): name, used range, merged ranges, formulas with cached values."""
+    """Per sheet (workbook order, chart sheets included, like Docling's pages): name, used range,
+    merged ranges, formulas with cached values."""
     import openpyxl
-    formulas_wb = openpyxl.load_workbook(path, data_only=False, read_only=False)
-    values_wb = openpyxl.load_workbook(path, data_only=True, read_only=False)
+    wb = openpyxl.load_workbook(path, data_only=False, read_only=False)
     sheets = []
-    for ws in formulas_wb.worksheets:
-        vs = values_wb[ws.title]
-        formulas = []
-        for row in ws.iter_rows():
-            for cell in row:
-                if isinstance(cell.value, str) and cell.value.startswith("="):
-                    formulas.append({"cell": cell.coordinate, "formula": cell.value,
-                                     "value": vs[cell.coordinate].value})
-        sheets.append({"name": ws.title, "dimensions": ws.dimensions, "state": ws.sheet_state,
+    for name in wb.sheetnames:
+        ws = wb[name]
+        if not hasattr(ws, "iter_rows"):  # chart sheet: no cells
+            sheets.append({"name": name, "dimensions": "", "state": ws.sheet_state, "merged": [],
+                           "formulas": [], "charts": len(getattr(ws, "_charts", []))})
+            continue
+        formulas = [{"cell": c.coordinate, "formula": c.value, "value": None}
+                    for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")]
+        sheets.append({"name": name, "dimensions": ws.dimensions, "state": ws.sheet_state,
                        "merged": [str(r) for r in ws.merged_cells.ranges], "formulas": formulas,
                        "charts": len(getattr(ws, "_charts", []))})
+    if any(s["formulas"] for s in sheets):  # second full load only when there are values to read
+        values_wb = openpyxl.load_workbook(path, data_only=True, read_only=False)
+        for s in sheets:
+            for f in s["formulas"]:
+                f["value"] = values_wb[s["name"]][f["cell"]].value
     return sheets

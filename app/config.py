@@ -42,13 +42,10 @@ MB = 1024**2
 MEMORY_BUDGET = int(float(os.environ.get("STELE_MEMORY_BUDGET_GB", "20")) * GB)
 # Stop admitting new work above this; leaves headroom for estimate error before the hard ceiling.
 MEMORY_EMERGENCY = int(MEMORY_BUDGET * 0.85)
-# Always leave this much free for macOS (24 GB machine - 20 GB budget).
-SYSTEM_RESERVE = 4 * GB
 
-MAX_UPLOAD_BYTES = int(os.environ.get("STELE_MAX_UPLOAD_GB", "4")) * GB
 MAX_FILE_BYTES = 1 * GB
 MIN_FREE_DISK = 2 * GB
-HOST = os.environ.get("STELE_HOST", "127.0.0.1")
+HOST = "127.0.0.1"  # never configurable: the API has no authentication
 PORT = int(os.environ.get("STELE_PORT", "8000"))
 
 # Rendering resolution for OCR engines (pixels per PDF point * 72 = DPI).

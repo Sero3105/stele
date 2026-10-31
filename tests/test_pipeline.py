@@ -131,3 +131,11 @@ def test_work_files_stay_internal(tmp_path):
     work = {p.name for p in (tmp_path / "work").iterdir()}
     assert "pages" not in work and "assets" not in work  # checkpoints/assets cleaned after publishing
     assert "report.json" in work                          # internal report kept out of the result
+
+
+def test_image_links_outside_the_document_are_never_read(tmp_path):
+    src = tmp_path / "nota.txt"
+    src.write_text("Nota\n\n![segreto](/etc/hosts)\n\n![su](../../../../etc/hosts)\n", encoding="utf-8")
+    ctx = Context(out_dir=tmp_path / "out", work_dir=tmp_path / "work", name=src.name)
+    md = Path(convert_file(src, ctx)["markdown"]).read_text()
+    assert "assets" not in published(tmp_path) and "hosts" not in md and "segreto" in md

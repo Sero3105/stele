@@ -46,7 +46,7 @@ REGISTRY: dict[str, ModelSpec] = {
                   convert_to="mlx/pp-doclayout-v3"),
         ModelSpec("glm-ocr-4bit", "mlx-community/GLM-OCR-4bit", "97f587506984cc92fa69b2694b4128e53db6b081",
                   "mlx-vlm (Metal)", "MLX 4-bit", "MIT", "Fallback per pagine difficili (pagina intera, 1024 px)"),
-        ModelSpec("docling-layout", "docling-project/docling-layout-heron", "main",
+        ModelSpec("docling-layout", "docling-project/docling-layout-heron", "8f39ad3c0b4c58e9c2d2c84a38465abf757272d8",
                   "docling (torch/MPS)", "safetensors", "Apache-2.0", "Docling: analisi layout"),
         ModelSpec("docling-tableformer", "docling-project/docling-models", "v2.3.0",
                   "docling (torch/MPS)", "safetensors", "Apache-2.0", "Docling: struttura tabelle"),
@@ -156,6 +156,15 @@ def download(keys: list[str]) -> None:
             convert(str(path), str(config.MODELS_DIR / spec.convert_to), dtype="float32")
     if any(k.startswith("docling-") for k in keys):
         print("[get ] docling layout + tableformer")
+        # Docling asks for the layout model at "main": fetch the pinned revisions, point "main" at
+        # the pin, then initialise Docling offline so it can't pull a newer, unmeasured main.
+        for key in ("docling-layout", "docling-tableformer"):
+            snapshot_download(REGISTRY[key].repo, revision=REGISTRY[key].revision)
+        heron = REGISTRY["docling-layout"]
+        (_repo_dir(heron.repo) / "refs").mkdir(exist_ok=True)
+        (_repo_dir(heron.repo) / "refs" / "main").write_text(heron.revision)
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        huggingface_hub.constants.HF_HUB_OFFLINE = True
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption

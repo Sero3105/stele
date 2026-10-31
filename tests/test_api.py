@@ -19,7 +19,7 @@ DATA = Path(__file__).resolve().parent.parent / "benchmarks" / "data"
 @pytest.fixture(scope="module")
 def client():
     from app.main import app
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         yield c
 
 
@@ -159,3 +159,9 @@ def test_streaming_zip_is_chunked_not_buffered():
         assert z.read("a/big.bin") == b"\0" * (8 << 20) and z.read("README.txt") == b"ciao"
     finally:
         big.unlink()
+
+
+def test_foreign_host_is_rejected(client):
+    """DNS rebinding: a page on another domain that resolves to 127.0.0.1 must not read the API."""
+    assert client.get("/api/jobs", headers={"host": "evil.example"}).status_code == 400
+    assert client.get("/api/jobs", headers={"host": "localhost:8000"}).status_code == 200
