@@ -2,10 +2,29 @@ name: CI
 
 on:
   push:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+
+# A newer push to the same branch makes the running check pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    # Three shards in parallel: ~10 min in one job, model loads dominate on the 3-core runner.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: browser
+            tests: tests/test_browser.py
+          - shard: server
+            tests: tests/test_reliability.py tests/test_api.py
+          - shard: core
+            tests: tests --ignore=tests/test_browser.py --ignore=tests/test_reliability.py --ignore=tests/test_api.py
+    name: test (${{ matrix.shard }})
     # Apple Silicon + macOS 26: Apple Vision RecognizeDocumentsRequest, MLX on Metal, NSSpellChecker.
     runs-on: macos-26
     timeout-minutes: 60
@@ -29,10 +48,13 @@ jobs:
         run: make models
 
       - name: WebKit for the browser tests (Chrome is preinstalled)
+        if: matrix.shard == 'browser'
         run: .venv/bin/playwright install webkit
 
       - name: Tests
-        run: make test
+        run: |
+          .venv/bin/python benchmarks/make_dataset.py >/dev/null
+          .venv/bin/python -m pytest -q --durations=15 ${{ matrix.tests }}
 
       - name: Dataset generation is deterministic
         run: git diff --exit-code benchmarks/data
