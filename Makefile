@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: install models run test bench
+.PHONY: install models run app test bench
 
 install:            ## venv + dependencies + native Apple Vision helper
 	uv venv --python 3.12 .venv
@@ -13,6 +13,15 @@ models:             ## download/verify model weights into ./models (the only net
 
 run:
 	$(PY) -m app.main
+
+app:                ## Stele.app: menu bar icon that runs the server (needs `make install` first)
+	rm -rf Stele.app
+	mkdir -p Stele.app/Contents/MacOS Stele.app/Contents/Resources
+	swiftc -O native/stele_app.swift -o Stele.app/Contents/MacOS/Stele
+	sed 's|@ROOT@|$(CURDIR)|' native/Info.plist > Stele.app/Contents/Info.plist
+	cp native/Stele.icns Stele.app/Contents/Resources/
+	codesign --force --sign - Stele.app
+	@echo "Pronto: open Stele.app (o trascinala in /Applicazioni)"
 
 test:
 	$(PY) benchmarks/make_dataset.py >/dev/null

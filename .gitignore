@@ -26,6 +26,7 @@ models/
 
 # Native build artifacts
 native/vision_ocr
+Stele.app/
 
 # Runtime data (user documents, checkpoints, results, job database)
 *.sqlite3
