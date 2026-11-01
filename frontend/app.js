@@ -144,8 +144,22 @@ async function poll() {
     const job = await r.json();
     renderJob(job);
     const active = (job.counts.queued || 0) + (job.counts.running || 0) + (job.counts.uploading || 0);
+    if (wasActive[job.id] && !active) { notifyDone(job); loadHistory(); }
+    wasActive[job.id] = active > 0;
     pollTimer = setTimeout(poll, active ? 1000 : 5000);
   } catch { pollTimer = setTimeout(poll, 3000); }
+}
+
+const wasActive = {};
+function notifyDone(job) {
+  if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+  const done = job.files.filter(f => f.state === "done"), failed = job.files.length - done.length;
+  const check = done.reduce((a, f) => a + (f.summary?.review?.length || 0), 0);
+  const body = [done.length ? plural(done.length, "documento pronto", "documenti pronti") : "",
+    check ? plural(check, "pagina da controllare", "pagine da controllare") : "",
+    failed ? plural(failed, "non convertito", "non convertiti") : ""].filter(Boolean).join(" · ");
+  const n = new Notification(failed && !done.length ? "Stele: conversione non riuscita" : "Stele: conversione completata", { body });
+  n.onclick = () => { window.focus(); n.close(); };
 }
 
 function renderJob(job) {
