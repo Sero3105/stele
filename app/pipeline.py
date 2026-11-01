@@ -8,6 +8,10 @@ engines produced the pages.
 
 from __future__ import annotations
 
+import csv
+import email
+import email.policy
+import io
 import json
 import logging
 import os
@@ -526,6 +530,22 @@ def source_metadata(src: Path, info: FileInfo) -> dict[str, str]:
 
 
 # --------------------------------------------------------------------------- publish
+def table_csv(rows: list[list[str]]) -> str:
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="\n").writerows([[c.replace("\\|", "|") for c in r] for r in rows])
+    return buf.getvalue()
+
+
+def write_tables(texts: list[str], assets: Path) -> None:
+    """Every table of the published Markdown also as assets/tabella_NNN.csv (replacing old ones)."""
+    for old in assets.glob("tabella_*.csv"):
+        old.unlink()
+    tables = [markdown.table_rows(b.text) for md in texts for b in markdown.parse(md) if b.kind == "table"]
+    for i, rows in enumerate((r for r in tables if r), 1):
+        assets.mkdir(exist_ok=True)
+        atomic_write(assets / f"tabella_{i:03d}.csv", table_csv(rows))
+
+
 def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, chart_refs: set[str],
             seconds: float) -> Path:
     """Write <stem>.md + assets/ + metadata.json into a staging dir, then swap it into place, so
@@ -548,6 +568,7 @@ def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, char
         shutil.copy2(src, stage / "assets" / name)
         mapping[ref] = f"assets/{name}"
     md = markdown.rewrite_images(md, mapping)
+    write_tables([md], stage / "assets")
     if not any((stage / "assets").iterdir()):
         (stage / "assets").rmdir()
     atomic_write(stage / f"{ctx.stem}.md", md)

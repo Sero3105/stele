@@ -117,8 +117,10 @@ def readme(job: dict, folders: dict[int, str]) -> bytes:
         "",
         "Ogni cartella contiene:",
         "  <nome>.md       il documento in Markdown (apribile con Obsidian, VS Code, Typora...)",
-        "  assets/         immagini e grafici collegati dal Markdown con percorsi relativi",
+        "  assets/         immagini e grafici collegati dal Markdown con percorsi relativi,",
+        "                  e ogni tabella anche in CSV (tabella_001.csv, ...)",
         "  metadata.json   informazioni tecniche: file sorgente, formato, pagine, modalità",
+        *(["  chunks.jsonl    il testo diviso per sezioni, con le pagine di origine (per RAG)"] if job.get("rag") else []),
         "",
         "Contenuto:",
     ]
