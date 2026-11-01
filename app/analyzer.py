@@ -19,6 +19,8 @@ TEXTUTIL = {".doc", ".rtf", ".odt"}
 LIBREOFFICE_ONLY = {".ppt", ".xls", ".odp", ".ods"}
 MARKUP = {".html", ".htm", ".csv"}
 PLAIN = {".txt", ".md"}  # .md is already Markdown: Docling would rewrite it
+EPUB = {".epub"}
+EMAIL = {".eml"}
 
 
 @dataclass
@@ -36,7 +38,7 @@ class FileInfo:
     ext: str
     mime: str | None
     size: int
-    family: str            # pdf | image | office | legacy | markup | text | unsupported
+    family: str            # pdf | image | office | legacy | markup | text | epub | email | unsupported
     page_count: int = 0
     pages: list[PageInfo] = field(default_factory=list)
     language: str | None = None
@@ -139,6 +141,10 @@ def analyze(path: Path) -> FileInfo:
         info.family = "markup"
     elif ext in PLAIN:
         info.family = "text"
+    elif ext in EPUB:
+        info.family = "epub"
+    elif ext in EMAIL:
+        info.family = "email"
     else:
         info.error = f"Formato non supportato: {ext or 'senza estensione'}"
     return info

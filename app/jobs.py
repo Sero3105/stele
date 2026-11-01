@@ -302,6 +302,8 @@ class Scheduler:
         recovered = self.store.recover()
         if recovered:
             log.info("re-queued %d interrupted conversions", recovered)
+        if indexed := self.store.index_missing():
+            log.info("indexed %d documents for search", indexed)
         for i in range(self.workers):
             t = threading.Thread(target=self._loop, name=f"worker-{i}", daemon=True)
             t.start()

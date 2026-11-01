@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
+import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -575,6 +577,15 @@ def source_metadata(src: Path, info: FileInfo) -> dict[str, str]:
             props = (docx.Document(src) if src.suffix.lower() == ".docx" else pptx.Presentation(src)).core_properties
             meta = {"title": props.title or "", "author": props.author or "", "subject": props.subject or "",
                     "date": props.created.date().isoformat() if props.created else ""}
+        elif info.family == "epub":
+            z, _, pkg = _epub_opf(src)
+            z.close()
+            dc = {el.tag.rsplit("}", 1)[-1]: (el.text or "") for el in pkg.iter() if "purl.org/dc" in el.tag}
+            meta = {"title": dc.get("title", ""), "author": dc.get("creator", ""), "date": dc.get("date", "")[:10]}
+        elif info.family == "email":
+            msg = email.message_from_bytes(src.read_bytes(), policy=email.policy.default)
+            date = msg["Date"].datetime.date().isoformat() if msg["Date"] and msg["Date"].datetime else ""
+            meta = {"title": str(msg["Subject"] or ""), "author": str(msg["From"] or ""), "date": date}
         elif src.suffix.lower() in (".xlsx", ".xlsm"):
             import openpyxl
             props = openpyxl.load_workbook(src, read_only=True).properties
