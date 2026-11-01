@@ -247,7 +247,8 @@ class JobStore:
         uploaded after a 25-file folder starts at the next free worker instead of waiting for all 25."""
         with self._lock:
             row = self._db.execute(
-                "SELECT f.*, j.mode FROM files f JOIN jobs j ON j.id=f.job_id "
+                "SELECT f.*, COALESCE(f.mode, j.mode) AS run_mode, j.rag, j.split, j.pages FROM files f "
+                "JOIN jobs j ON j.id=f.job_id "
                 "WHERE f.id IN (SELECT MIN(id) FROM files WHERE state='queued' GROUP BY job_id) AND j.cancelled=0 "
                 "ORDER BY (SELECT COUNT(*) FROM files r WHERE r.job_id=f.job_id AND r.state='running'), f.id "
                 "LIMIT 1").fetchone()
@@ -355,6 +356,16 @@ class Scheduler:
                 self._wake.clear()
                 continue
             self._run(row)
+
+    def add_attachments(self, job_id: str, rel: PurePosixPath, paths: list[str]) -> None:
+        """An e-mail's attachments become files of the same job, in '<mail> (allegati)/'."""
+        for path in map(Path, paths):
+            fid, dest = self.store.add_file(job_id, rel.parent / f"{rel.stem} (allegati)" / path.name, path.stat().st_size)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(path, dest)
+            self.store.mark_uploaded(fid, dest.stat().st_size)
+        if paths:
+            self.notify()
 
     def _run(self, row) -> None:
         fid, job_id, rel = row["id"], row["job_id"], PurePosixPath(row["rel_path"])
