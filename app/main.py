@@ -21,8 +21,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app import config, models, pipeline
 from app.analyzer import page_image
 from app.export import content_disposition, document_entries, folder_names, readme, stream_zip
-from app.jobs import (JobStore, Scheduler, download_finished, download_started, result_dir,
-                      safe_relative_path)
+from app.jobs import (JobStore, Scheduler, download_finished, download_started, previous_dir,
+                      result_dir, safe_relative_path)
 from app.pipeline import safe_name
 from app.resources import gpu_utilization, manager
 
@@ -123,6 +123,15 @@ def cancel_job(job_id: str):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{job_id}/keep")
+async def keep_job(job_id: str, request: Request):
+    """Keep (or stop keeping) a job past the retention period: a personal archive to search."""
+    if store.job(job_id) is None:
+        raise HTTPException(404, "Lavoro non trovato")
+    store.keep(job_id, bool((await request.json()).get("keep")))
+    return {"ok": True}
+
+
 @app.post("/api/files/{fid}/retry")
 async def retry_file(fid: int, request: Request):
     """Convert a file again from its upload: after an error, or in another mode ({"mode": ...})."""
@@ -146,6 +155,11 @@ def _requeue(f: dict, mode: str | None = None, recheck: dict | None = None) -> N
 
 def _upload(f: dict) -> Path:
     return config.UPLOADS / f["job_id"] / Path(*PurePosixPath(f["rel_path"]).parts)
+
+
+@app.get("/api/search")
+def search(q: str = ""):
+    return store.search(q)
 
 
 @app.delete("/api/jobs/{job_id}")

@@ -397,18 +397,46 @@ async function loadHistory() {
       const c = j.counts, total = Object.values(c).reduce((a, b) => a + b, 0);
       return `<li><button class="link" data-job="${j.id}">${new Date(j.created * 1000).toLocaleString("it-IT")} · ${MODE[j.mode]} · ${plural(total, "documento", "documenti")}</button>
         <span class="small">${["running", "queued", "done", "error"].filter(s => c[s]).map(s => `${badge(s)} ${c[s]}`).join(" ")}</span>
+        <button class="link" data-keep="${j.id}" data-on="${j.keep ? 0 : 1}" title="${j.keep ? "Torna a eliminarla dopo 7 giorni" : "Non eliminarla dopo 7 giorni"}">${j.keep ? "Conservata ✓" : "Conserva"}</button>
         <button class="link danger" data-del="${j.id}" title="Elimina file caricati e risultati">Elimina</button></li>`;
     }).join("") : `<li class="muted">Nessuna conversione.</li>`;
   } catch { /* server restarting */ }
 }
 $("#history").addEventListener("click", async e => {
-  const open = e.target.closest("[data-job]"), del = e.target.closest("[data-del]");
+  const open = e.target.closest("[data-job]"), del = e.target.closest("[data-del]"), keep = e.target.closest("[data-keep]");
   if (open) openJob(open.dataset.job);
+  if (keep) {
+    await fetch(`/api/jobs/${keep.dataset.keep}/keep`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep.dataset.on === "1" }) });
+    loadHistory();
+  }
   if (del && confirm("Eliminare definitivamente i file caricati e i risultati di questa conversione?")) {
     await fetch(`/api/jobs/${del.dataset.del}`, { method: "DELETE" });
     if (currentJob === del.dataset.del) { currentJob = null; $("#job").classList.add("hidden"); }
     loadHistory();
   }
+});
+
+// ---------------------------------------------------------------- search
+let searchTimer = null;
+async function runSearch() {
+  const q = $("#search").value.trim();
+  if (!q) { $("#search-results").innerHTML = ""; return; }
+  try {
+    const hits = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
+    if (q !== $("#search").value.trim()) return;  // a newer search is on its way
+    $("#search-results").innerHTML = hits.length ? hits.map(h => `<li><button class="link" data-hit="${h.id}" data-job="${h.job_id}" data-name="${esc(h.rel_path)}">${esc(h.rel_path)}</button>
+      <span class="muted small">${new Date(h.created * 1000).toLocaleDateString("it-IT")}</span>
+      <div>${esc(h.snippet).replace(/\u0002/g, "<mark>").replace(/\u0003/g, "</mark>")}</div></li>`).join("")
+      : `<li class="muted">Nessun documento contiene queste parole.</li>`;
+  } catch { /* server restarting */ }
+}
+$("#search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); });
+$("#search-results").addEventListener("click", async e => {
+  const b = e.target.closest("[data-hit]");
+  if (!b) return;
+  openJob(b.dataset.job);
+  const job = await (await fetch(`/api/jobs/${b.dataset.job}`)).json();
+  preview(b.dataset.hit, b.dataset.name, job.files.find(f => String(f.id) === b.dataset.hit));
 });
 
 // ---------------------------------------------------------------- resources

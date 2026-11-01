@@ -185,9 +185,34 @@ class JobStore:
                       "ORDER BY finished DESC LIMIT 1", (source_key, fid))
         return rows[0] if rows else None
 
+    def keep(self, job_id: str, keep: bool) -> None:
+        self.x("UPDATE jobs SET keep=? WHERE id=?", (int(keep), job_id))
+
+    # ---------------------------------------------------------------- full-text search
     def index(self, fid: int, markdown: str) -> None:
         self.x("DELETE FROM search WHERE file_id=?", (fid,))
         self.x("INSERT INTO search(text, file_id) VALUES (?,?)", (strip_markdown(markdown), fid))
+
+    def index_missing(self) -> int:
+        """Done files converted before the search index existed."""
+        rows = self.q("SELECT id, job_id FROM files WHERE state='done' AND id NOT IN (SELECT file_id FROM search)")
+        for r in rows:
+            out = result_dir(r["job_id"], r["id"])
+            if any(out.glob("*.md")):
+                self.index(r["id"], pipeline.full_text(out))
+        return len(rows)
+
+    def search(self, query: str, limit: int = 50) -> list[dict]:
+        """Documents containing every word of `query` (prefixes too, accents ignored), best first.
+        The snippet marks matches with \x02 ... \x03."""
+        words = re.findall(r"\w+", query)
+        if not words:
+            return []
+        match = " ".join(f'"{w}"*' for w in words)  # quoted: user text is never FTS5 syntax
+        return [dict(r) for r in self.q(
+            "SELECT f.id, f.job_id, f.rel_path, j.created, snippet(search, 0, char(2), char(3), '…', 16) AS snippet "
+            "FROM search JOIN files f ON f.id = search.file_id JOIN jobs j ON j.id = f.job_id "
+            "WHERE search MATCH ? AND f.state='done' ORDER BY rank LIMIT ?", (match, limit))]
 
     def delete(self, job_id: str) -> None:
         self.cancel(job_id)
@@ -231,6 +256,11 @@ class JobStore:
 def result_dir(job_id: str, fid: int) -> Path:
     """Final document folder of one file: <stem>.md, assets/, metadata.json."""
     return config.RESULTS / job_id / str(fid)
+
+
+def previous_dir(job_id: str, fid: int) -> Path:
+    """The result replaced by the last reconversion (+ its summary.json), kept for comparison."""
+    return config.RESULTS / job_id / f"{fid}.prev"
 
 
 # Jobs whose ZIP is being streamed right now: the retention cleanup must not delete them.
