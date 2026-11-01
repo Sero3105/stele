@@ -23,7 +23,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app import config, models, pipeline
 from app.analyzer import page_image
 from app.export import content_disposition, document_entries, folder_names, readme, stream_zip
-from app.jobs import (JobStore, Scheduler, download_finished, download_started, previous_dir,
+from app.jobs import (JobStore, Scheduler, download_finished, download_started, previous_dir, restore_previous,
                       result_dir, safe_relative_path)
 from app.pipeline import safe_name
 from app.resources import gpu_utilization, manager
