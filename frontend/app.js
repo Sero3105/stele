@@ -69,15 +69,28 @@ function postForm(url, form, onProgress) {
   });
 }
 function errorText(body) { try { return JSON.parse(body).detail; } catch { return body; } }
+// Short message at the bottom of the screen (errors of an action, confirmations): no blocking alert.
+let toastTimer = null;
+function toast(text, kind = "") {
+  const t = $("#toast");
+  ($("#preview").open ? $("#preview") : document.body).appendChild(t);  // above the open preview
+  t.textContent = text;
+  t.className = `toast show ${kind}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, kind === "error" ? 6000 : 2500);
+}
 
 $("#start").onclick = async () => {
   const mode = document.querySelector("input[name=mode]:checked").value;
+  const rag = $("#opt-rag").checked, split = $("#opt-split").checked, pages = $("#opt-pages").value.trim();
   const files = selected;
+  // Asked now, on a click: a long conversion can then tell you when it is done (only if the tab is hidden).
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   uploading = true; renderSelection();
   const status = $("#upload-status");
   let job = null, accepted = 0;
   try {
-    const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+    const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, rag, split, pages }) });
     if (!r.ok) throw new Error(errorText(await r.text()));
     job = await r.json();
     openJob(job.id);

@@ -8,8 +8,9 @@ is dropped except page furniture (page numbers, headers/footers repeated on most
 
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # ------------------------------------------------------------------ blocks
 
@@ -19,6 +20,7 @@ class Block:
     kind: str   # heading | table | list | math | code | image | comment | paragraph
     text: str
     level: int = 0  # heading level
+    pages: tuple[int, ...] = ()  # source pages (several when a paragraph or table spans a page break)
 
 
 _LIST = re.compile(r"^(\s*)(?:[-*+•◦▪‣●–]|\d{1,3}[.)])\s+")
@@ -233,15 +235,19 @@ def _join_boundary(prev: Block, nxt: Block) -> Block | None:
     if prev.kind == "paragraph" and nxt.kind == "paragraph" and not _END.search(prev.text) \
             and nxt.text[:1].islower():
         if re.search(r"[A-Za-zÀ-ÿ]-$", prev.text):
-            return Block("paragraph", prev.text[:-1] + nxt.text)
-        return Block("paragraph", prev.text + " " + nxt.text)
+            return Block("paragraph", prev.text[:-1] + nxt.text, pages=_pages(prev, nxt))
+        return Block("paragraph", prev.text + " " + nxt.text, pages=_pages(prev, nxt))
     if prev.kind == "table" and nxt.kind == "table":
         a, b = table_rows(prev.text), table_rows(nxt.text)
         if a and b and len(a[0]) == len(b[0]):
             if [c.lower() for c in b[0]] == [c.lower() for c in a[0]]:
                 b = b[1:]  # header repeated on the continuation page
-            return Block("table", render_table(a + b))
+            return Block("table", render_table(a + b), pages=_pages(prev, nxt))
     return None
+
+
+def _pages(*blocks: Block) -> tuple[int, ...]:
+    return tuple(sorted({p for b in blocks for p in b.pages}))
 
 
 # ------------------------------------------------------------------ document
@@ -263,26 +269,44 @@ def fix_heading_levels(blocks: list[Block]) -> list[Block]:
                 continue
         if prev and level > prev + 1:
             level = prev + 1
-        out.append(Block("heading", b.text, level))
+        out.append(replace(b, level=level))
         prev = level
     return out
 
 
-def render(blocks: list[Block]) -> str:
-    parts = []
+def _text(b: Block) -> str:
+    return ("#" * b.level + " " + b.text) if b.kind == "heading" else b.text
+
+
+def page_marker(n: int) -> str:
+    return f"<!-- pagina {n} -->"
+
+
+def render(blocks: list[Block], markers: bool = False) -> str:
+    """`markers`: a `<!-- pagina N -->` line where page N starts (invisible when rendered)."""
+    parts, page = [], 0
     for b in blocks:
-        parts.append(("#" * b.level + " " + b.text) if b.kind == "heading" else b.text)
+        if markers and b.pages and b.pages[0] > page:
+            page = b.pages[0]
+            parts.append(page_marker(page))
+        parts.append(_text(b))
     return "\n\n".join(parts)
 
 
-def front_matter(meta: dict[str, str]) -> str:
-    """YAML front matter (Obsidian 'properties') with source metadata, only keys that exist."""
-    items = [(k, str(v).strip()) for k, v in meta.items() if v and str(v).strip()]
+def front_matter(meta: dict) -> str:
+    """YAML front matter (Obsidian 'properties'), only keys that have a value. Text is quoted,
+    numbers stay numbers, lists become YAML lists (e.g. tags)."""
+    def q(v: str) -> str:
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").strip() + '"'
+
+    def value(v) -> str:
+        if isinstance(v, bool) or not isinstance(v, (int, list)):
+            return q(str(v))
+        return str(v) if isinstance(v, int) else "[" + ", ".join(q(str(x)) for x in v) + "]"
+    items = [(k, value(v)) for k, v in meta.items() if v not in (None, "", []) and str(v).strip()]
     if not items:
         return ""
-    def q(v: str) -> str:
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
-    return "---\n" + "\n".join(f"{k}: {q(v)}" for k, v in items) + "\n---\n\n"
+    return "---\n" + "\n".join(f"{k}: {v}" for k, v in items) + "\n---\n\n"
 
 
 def merge_continuations(blocks: list[Block]) -> list[Block]:
@@ -291,7 +315,7 @@ def merge_continuations(blocks: list[Block]) -> list[Block]:
     out: list[Block] = []
     for b in blocks:
         if out and b.kind == out[-1].kind == "list":
-            out[-1] = Block("list", out[-1].text + "\n" + b.text)
+            out[-1] = Block("list", out[-1].text + "\n" + b.text, pages=_pages(out[-1], b))
             continue
         if out and (merged := _join_boundary(out[-1], b)) and b.kind == "paragraph":
             out[-1] = merged
@@ -302,7 +326,20 @@ def merge_continuations(blocks: list[Block]) -> list[Block]:
 
 def assemble(pages: list[str], meta: dict[str, str] | None = None) -> str:
     """Ordered page fragments -> one normalised Markdown document."""
-    page_blocks = [[normalize_block(b) for b in parse(p)] for p in pages]
+    return document(assemble_blocks(pages), meta)
+
+
+def document(blocks: list[Block], meta: dict[str, str] | None = None, markers: bool = False) -> str:
+    body = render(blocks, markers).strip()
+    return front_matter(meta or {}) + (body + "\n" if body else "")
+
+
+def assemble_blocks(pages: list[str], numbers: list[int] | None = None) -> list[Block]:
+    """Ordered page fragments -> normalised blocks, each knowing its source page(s) (`numbers`,
+    one per fragment; 0 = a format without pages)."""
+    numbers = numbers or [0] * len(pages)
+    page_blocks = [[replace(normalize_block(b), pages=(n,) if n else ()) for b in parse(p)]
+                   for p, n in zip(pages, numbers)]
     page_blocks = strip_page_furniture(page_blocks)
     blocks: list[Block] = []
     for p in page_blocks:
@@ -313,9 +350,92 @@ def assemble(pages: list[str], meta: dict[str, str] | None = None) -> str:
                 p = p[1:]
         blocks.extend(p)
     blocks = merge_continuations(blocks)
-    blocks = fix_heading_levels(blocks)
-    body = render(blocks).strip()
-    return front_matter(meta or {}) + (body + "\n" if body else "")
+    return fix_heading_levels(blocks)
+
+
+# ------------------------------------------------------------------ chapters (one note each)
+
+
+def split_chapters(blocks: list[Block]) -> tuple[list[Block], list[tuple[str, list[Block]]]]:
+    """(blocks before the first chapter, [(chapter title, its blocks)]). A chapter starts at each
+    heading of the highest level that occurs at least twice (a lone H1 is the document title);
+    headings are promoted so that each chapter's own heading becomes '#'. No such level: no
+    chapters."""
+    levels = [b.level for b in blocks if b.kind == "heading"]
+    level = next((lv for lv in sorted(set(levels)) if levels.count(lv) >= 2), None)
+    if level is None:
+        return blocks, []
+    intro: list[Block] = []
+    chapters: list[tuple[str, list[Block]]] = []
+    for b in blocks:
+        if b.kind == "heading" and b.level == level:
+            chapters.append((b.text, []))
+        if b.kind == "heading" and chapters:
+            b = replace(b, level=max(1, b.level - level + 1))
+        (chapters[-1][1] if chapters else intro).append(b)
+    while chapters and all(b.kind == "heading" for b in chapters[0][1]):  # a title right before the first chapter
+        intro += [replace(b, level=1) for b in chapters.pop(0)[1]]
+    return intro, chapters if len(chapters) >= 2 else []
+
+
+def page_span(blocks: list[Block]) -> str:
+    pages = sorted({p for b in blocks for p in b.pages})
+    if not pages:
+        return ""
+    return str(pages[0]) if pages[0] == pages[-1] else f"{pages[0]}-{pages[-1]}"
+
+
+# ------------------------------------------------------------------ chunks (RAG)
+
+MAX_CHUNK_CHARS = 2000  # a long section is split at block boundaries (a single bigger block stays whole)
+
+
+def chunks(blocks: list[Block], engines: dict[int, str] | None = None) -> list[dict]:
+    """Sections for retrieval: every heading starts a chunk that carries its heading path, the
+    source pages and the engines that read them. Pure: image links are rewritten by the caller."""
+    out: list[dict] = []
+    path: list[tuple[int, str]] = []
+    cur: list[Block] = []
+
+    def flush() -> None:
+        if not any(b.kind != "heading" for b in cur):
+            return  # a heading alone is not content: it lives on in the next chunk's heading path
+        pages = sorted({p for b in cur for p in b.pages})
+        used = engines or {}
+        out.append({"headings": [t for _, t in path], "text": "\n\n".join(_text(b) for b in cur),
+                    "pages": pages, "engines": sorted({used[p] for p in pages or used if p in used})})
+
+    for b in blocks:
+        if b.kind == "heading":
+            flush()
+            cur = []
+            path = [h for h in path if h[0] < b.level] + [(b.level, b.text)]
+        elif cur and sum(len(x.text) for x in cur) + len(b.text) > MAX_CHUNK_CHARS:
+            flush()
+            cur = []
+        cur.append(b)
+    flush()
+    return out
+
+
+_MARKER = re.compile(r"^<!-- pagina (\d+) -->$")
+
+
+def blocks_from_markdown(md: str) -> list[Block]:
+    """Blocks of a published (possibly hand-edited) document, their pages taken from its
+    `<!-- pagina N -->` markers."""
+    md = re.sub(r"\A---\n.*?\n---\n", "", md, flags=re.S)
+    out, page = [], 0
+    for b in parse(md):
+        if b.kind == "comment" and (m := _MARKER.match(b.text)):
+            page = int(m.group(1))
+            continue
+        out.append(replace(b, pages=(page,) if page else ()))
+    return out
+
+
+def jsonl(rows: list[dict]) -> str:
+    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
 
 
 # ------------------------------------------------------------------ images

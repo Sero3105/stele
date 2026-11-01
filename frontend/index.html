@@ -47,6 +47,15 @@
         <label class="mode"><input type="radio" name="mode" value="advanced">
           <span><b>Avanzata</b> — massima accuratezza su scansioni, tabelle e formule, più lenta</span></label>
       </fieldset>
+      <fieldset class="options">
+        <legend>Opzioni</legend>
+        <label class="option"><input id="opt-split" type="checkbox">
+          <span><b>Dividi in capitoli</b> — una nota per capitolo e una nota indice con i collegamenti, per Obsidian e Synapse</span></label>
+        <label class="option"><input id="opt-rag" type="checkbox">
+          <span><b>Per RAG</b> — numeri di pagina nel Markdown e <code>chunks.jsonl</code>, il testo diviso per sezioni</span></label>
+        <label class="option pages"><span><b>Solo alcune pagine</b> — PDF e scansioni</span>
+          <input id="opt-pages" type="text" inputmode="numeric" placeholder="tutte (esempio: 1-5, 8)" autocomplete="off"></label>
+      </fieldset>
       <button id="start" class="primary" disabled>Converti</button>
       <div id="upload-status" class="muted" aria-live="polite"></div>
     </div>

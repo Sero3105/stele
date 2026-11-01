@@ -5,7 +5,8 @@ One document:                      Several documents:
   └── nome/                          ├── README.txt
       ├── nome.md                    ├── documento_01/  (same shape as on the left)
       ├── assets/…                   └── cartella/documento_02/…   (upload folders kept)
-      └── metadata.json
+      ├── metadata.json
+      └── chunks.jsonl  (only with the RAG option)
 
 Only the published result of each file goes in: no checkpoints, reports, logs or engine output.
 """
@@ -70,14 +71,19 @@ def stream_zip(entries: list[tuple[str, Path | bytes]]) -> Iterator[bytes]:
 
 
 def document_entries(result_dir: Path, folder: str) -> list[tuple[str, Path]]:
-    """<folder>/<stem>.md, <folder>/assets/*, <folder>/metadata.json of one published result."""
+    """<folder>/<stem>.md, <folder>/assets/*, <folder>/metadata.json (+ chunks.jsonl) of one result."""
     md = next(result_dir.glob("*.md"))
     stem = folder.rsplit("/", 1)[-1]
     out = [(f"{folder}/{stem}.md", md)]
+    chapters = result_dir / "capitoli"
+    if chapters.is_dir():
+        out += [(f"{folder}/capitoli/{p.name}", p) for p in sorted(chapters.iterdir()) if p.suffix == ".md"]
     assets = result_dir / "assets"
     if assets.is_dir():
         out += [(f"{folder}/assets/{p.name}", p) for p in sorted(assets.iterdir()) if p.is_file()]
     out.append((f"{folder}/metadata.json", result_dir / "metadata.json"))
+    if (result_dir / "chunks.jsonl").is_file():
+        out.append((f"{folder}/chunks.jsonl", result_dir / "chunks.jsonl"))
     return out
 
 

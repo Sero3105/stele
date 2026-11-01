@@ -38,6 +38,17 @@ button:focus-visible, .btn:focus-within, a:focus-visible { outline: 2px solid va
 .link { background: none; border: 0; padding: 0 4px; color: var(--brand); text-decoration: underline; text-underline-offset: 2px; font-size: 13px; }
 .link.danger { color: var(--bad); }
 #start { margin-top: 12px; width: 100%; padding: 12px; }
+.options { border: 0; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+.options legend { font-weight: 600; margin-bottom: 6px; }
+.option { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.option.pages { flex-wrap: wrap; align-items: center; gap: 6px 12px; cursor: default; }
+.option.pages input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); width: min(240px, 100%); }
+.option input { margin-top: 4px; accent-color: var(--brand); }
+.warn { color: var(--warn); }
+#search { width: 100%; font: inherit; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); }
+.results { list-style: none; padding: 0; margin: 8px 0 0; }
+.results li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+.results mark { background: var(--soft); color: inherit; font-weight: 600; }
 
 .selection { margin-top: 14px; }
 .sel-head { display: flex; justify-content: space-between; }

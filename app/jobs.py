@@ -22,8 +22,8 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from app import config, markdown, pipeline, router
-from app.quality import strip_markdown
 from app.checkpoint import PIPELINE_VERSION, Busy, atomic_write, file_sha256
+from app.quality import strip_markdown
 
 log = logging.getLogger(__name__)
 
@@ -165,6 +165,14 @@ class JobStore:
         self.x("UPDATE files SET state='queued', mode=COALESCE(?, mode), recheck=?, stage='', error=NULL, "
                "pages_done=0, pages_total=0, started=NULL, finished=NULL WHERE id=?",
                (mode, json.dumps(recheck) if recheck else None, fid))
+
+    def rate(self, fid: int, rating: str) -> None:
+        if rating not in RATINGS:
+            raise ValueError(f"Giudizio sconosciuto: {rating}")
+        self.x("UPDATE files SET feedback=? WHERE id=?", (rating, fid))
+
+    def set_summary(self, fid: int, summary: dict) -> None:
+        self.x("UPDATE files SET summary=? WHERE id=?", (json.dumps(summary, default=str), fid))
 
     def finish(self, fid: int, summary: dict, source_key: str | None, text: str) -> None:
         self.x("UPDATE files SET state='done', stage='', summary=?, engines=?, finished=?, source_key=?, "

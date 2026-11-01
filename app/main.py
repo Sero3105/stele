@@ -57,7 +57,8 @@ def index():
 async def create_job(request: Request):
     body = await request.json()
     try:
-        return {"id": store.create_job(body.get("mode", "auto"))}
+        return {"id": store.create_job(body.get("mode", "auto"), bool(body.get("rag")), bool(body.get("split")),
+                                       str(body.get("pages") or ""))}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

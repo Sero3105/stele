@@ -546,7 +546,27 @@ def write_tables(texts: list[str], assets: Path) -> None:
         atomic_write(assets / f"tabella_{i:03d}.csv", table_csv(rows))
 
 
-CHAPTERS_DIR = "capitoli"
+def chunk_rows(chunks: list[dict], stem: str, source: str) -> list[dict]:
+    return [{"id": f"{stem}#{i}", "source": source, **c} for i, c in enumerate(chunks, 1)]
+
+
+def save_edit(out_dir: Path, text: str) -> None:
+    """A hand-corrected Markdown replaces the published one; the table CSVs and the chunks
+    follow it (chunk pages from the page markers), metadata.json records the edit."""
+    md = next(out_dir.glob("*.md"))
+    atomic_write(md, text)
+    write_tables([text], out_dir / "assets")
+    chunks = out_dir / "chunks.jsonl"
+    if chunks.exists():
+        old = [json.loads(line) for line in chunks.read_text(encoding="utf-8").splitlines() if line]
+        engines = {p: e for r in old for p in r["pages"] for e in r["engines"]}
+        source = old[0]["source"] if old else md.name
+        new = markdown.chunks(markdown.blocks_from_markdown(text), engines)
+        atomic_write(chunks, markdown.jsonl(chunk_rows(new, md.stem, source)))
+    meta_path = out_dir / "metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["edited_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    atomic_write(meta_path, json.dumps(meta, ensure_ascii=False, indent=2))
 
 
 def full_text(out_dir: Path) -> str:
@@ -559,15 +579,17 @@ def full_text(out_dir: Path) -> str:
 
 
 def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, chart_refs: set[str],
-            seconds: float) -> Path:
-    """Write <stem>.md + assets/ + metadata.json into a staging dir, then swap it into place, so
-    a reader never sees a half-written result. Only images the Markdown links are published."""
+            seconds: float, chunks: list[dict] | None = None, notes: dict[str, str] | None = None) -> Path:
+    """Write <stem>.md + assets/ + metadata.json (+ chunks.jsonl) into a staging dir, then swap it
+    into place, so a reader never sees a half-written result. Only images the Markdown links are
+    published; every table is also saved as assets/tabella_NNN.csv."""
     stage = ctx.work_dir / "final"
     shutil.rmtree(stage, ignore_errors=True)
     (stage / "assets").mkdir(parents=True)
     mapping: dict[str, str | None] = {}
     counters = {"grafico": 0, "immagine": 0}
-    for ref in dict.fromkeys(markdown.image_refs(md)):
+    notes = notes or {}
+    for ref in dict.fromkeys(markdown.image_refs(md + "".join(notes.values()))):
         if _URL.match(ref):  # web image (e.g. in a Markdown note): keep the link as it is
             continue
         src = local_asset(ctx.work_dir, ref)
@@ -580,12 +602,22 @@ def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, char
         shutil.copy2(src, stage / "assets" / name)
         mapping[ref] = f"assets/{name}"
     md = markdown.rewrite_images(md, mapping)
-    write_tables([md], stage / "assets")
+    if notes:  # chapter notes sit one folder down: their links go up to the shared assets/
+        up = {ref: new and f"../{new}" for ref, new in mapping.items()}
+        notes = {name: markdown.rewrite_images(text, up) for name, text in notes.items()}
+        (stage / CHAPTERS_DIR).mkdir()
+        for name, text in notes.items():
+            atomic_write(stage / CHAPTERS_DIR / name, text)
+    write_tables([md, *notes.values()], stage / "assets")
+    if chunks is not None:
+        rows = [c | {"text": markdown.rewrite_images(c["text"], mapping)} for c in chunks]
+        atomic_write(stage / "chunks.jsonl", markdown.jsonl(chunk_rows(rows, ctx.stem, ctx.name)))
     if not any((stage / "assets").iterdir()):
         (stage / "assets").rmdir()
     atomic_write(stage / f"{ctx.stem}.md", md)
     metadata = {"source": ctx.name, "format": info.ext.lstrip(".") or info.mime, "size_bytes": info.size,
-                "pages": info.page_count or len(pages), "mode": ctx.mode, "language": info.language,
+                "pages": len(pages) if ctx.pages else info.page_count or len(pages), "mode": ctx.mode,
+                "language": info.language, **({"page_range": ctx.pages} if ctx.pages else {}),
                 "converted_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "duration_s": round(seconds, 1)}
     sheets = [p.data["sheet"] for p in pages if "sheet" in p.data]
@@ -629,9 +661,17 @@ def convert_file(src: Path, ctx: Context) -> dict:
         ctx.check()
         as_is = info.ext == ".md"  # already Markdown: front matter, callouts and checkboxes stay as written
         chart_refs = enrich_images(pages, ctx.work_dir, ctx) if ctx.mode != router.FAST and not as_is else set()
-        md = pages[0].markdown if as_is else markdown.assemble([p.markdown for p in pages], source_metadata(src, info))
-        md_path = publish(md, pages, info, ctx, chart_refs, time.time() - t0)
-        cp.clear()
+        if as_is:
+            md, notes = pages[0].markdown, {}
+            blocks = markdown.parse(re.sub(r"\A---\n.*?\n---\n", "", md, flags=re.S)) if ctx.rag else []
+        else:
+            blocks = markdown.assemble_blocks([p.markdown for p in pages], [p.page_no for p in pages])
+            meta = source_metadata(src, info) | properties(pages, info, ctx)
+            md, notes = (split_notes(blocks, meta, ctx) if ctx.split else None) or (
+                markdown.document(blocks, meta, markers=ctx.rag), {})
+        chunks = markdown.chunks(blocks, {p.page_no: p.engine for p in pages}) if ctx.rag else None
+        md_path = publish(md, pages, info, ctx, chart_refs, time.time() - t0, chunks, notes)
+        # Checkpoints stay: a recheck asked later re-reads only some pages and reuses the rest.
     report = {
         "source": ctx.name, "mode": ctx.mode, "seconds": round(time.time() - t0, 2),
         "engines": sorted(ctx.engines_used), "analysis": info.as_dict(), "notes": ctx.notes,
