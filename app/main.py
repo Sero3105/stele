@@ -243,10 +243,25 @@ def _done_file(fid: int) -> tuple[dict, Path]:
 
 
 @app.get("/api/files/{fid}/markdown")
-def get_markdown(fid: int):
-    """Text of the final Markdown, for the in-page preview."""
+def get_markdown(fid: int, full: bool = False):
+    """Text of the final Markdown, for the in-page preview (`full`: chapter notes included)."""
     _, out = _done_file(fid)
-    return PlainTextResponse(next(out.glob("*.md")).read_text(encoding="utf-8"))
+    return PlainTextResponse(pipeline.full_text(out) if full else next(out.glob("*.md")).read_text(encoding="utf-8"))
+
+
+@app.put("/api/files/{fid}/markdown")
+async def save_markdown(fid: int, request: Request):
+    """Hand-corrected text replaces the converted one (search index, CSVs and chunks follow)."""
+    f, out = _done_file(fid)
+    if (f["summary"] or {}).get("chapters"):
+        raise HTTPException(409, "Documento diviso in capitoli: correggi le singole note nel vault")
+    text = (await request.body()).decode("utf-8", errors="replace")
+    if not text.strip():
+        raise HTTPException(400, "Il documento non può essere vuoto")
+    await run_in_threadpool(pipeline.save_edit, out, text)
+    store.set_summary(fid, (f["summary"] or {}) | {"edited": True})
+    store.index(fid, text)
+    return {"ok": True}
 
 
 @app.get("/api/files/{fid}/assets/{name}")
