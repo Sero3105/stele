@@ -13,7 +13,7 @@ import threading
 # Imported here, once, on the importing thread: PyObjC resolves these lazily and a first lookup
 # from several worker threads at once failed intermittently (KeyError 'NSMakeRange').
 from AppKit import NSSpellChecker, NSTextCheckingTypeSpelling
-from Foundation import NSMakeRange
+from Foundation import NSLinguisticTagger, NSMakeRange
 
 _WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 _JUNK = re.compile(r"[�-]|\(cid:\d+\)")
@@ -62,26 +62,27 @@ def text_quality(text: str) -> float:
     return round(max(0.0, min(1.0, score)), 3)
 
 
-_IT = {"il", "la", "di", "che", "e", "per", "con", "del", "della", "sono", "una", "nel", "gli", "è", "non"}
-_EN = {"the", "of", "and", "to", "in", "is", "that", "for", "with", "are", "was", "on", "by", "this", "from"}
+_spell_lock = threading.Lock()
+MIN_WORDS_FOR_LANGUAGE = 15  # fewer (a cover page, a table of numbers) is too little to tell
 
 
 def guess_language(text: str) -> str | None:
-    words = [w.lower() for w in _WORD.findall(text[:5000])]
-    it, en = sum(w in _IT for w in words), sum(w in _EN for w in words)
-    if it + en < 5:
+    """Two-letter code of the text's language (macOS language identification), or None."""
+    plain = strip_markdown(text[:20000])[:5000]
+    if len(_WORD.findall(plain)) < MIN_WORDS_FOR_LANGUAGE:
         return None
-    return "it" if it > en else "en"
-
-
-_spell_lock = threading.Lock()
+    with _spell_lock:  # AppKit/Foundation objects: one caller at a time
+        code = NSLinguisticTagger.dominantLanguageForString_(plain)
+    code = str(code or "").split("-")[0]
+    return code if code and code != "und" else None
 
 
 def misspelled_ratio(text: str, lang: str | None) -> tuple[float, int]:
-    """(share of misspelled words, word count) using macOS's built-in it/en dictionaries.
+    """(share of misspelled words, word count) using macOS's built-in dictionaries.
 
     Real OCR errors make plausible-looking non-words ("refazione", "cimatizzazione"), which
-    only a dictionary catches. Unknown language: the better of Italian and English.
+    only a dictionary catches. Unknown language: the better of Italian and English. (macOS
+    also identifies the language of the text itself, so a French page is checked as French.)
     """
     # Math is not prose: LaTeX commands (\frac, \sqrt) would count as misspelled words.
     text = re.sub(r"\$\$.*?\$\$|\$[^$\n]+\$", " ", text, flags=re.S)
