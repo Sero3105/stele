@@ -144,6 +144,29 @@ def analyze(path: Path) -> FileInfo:
     return info
 
 
+def page_image(path: Path, n: int, dpi: int):
+    """1-based page n of a PDF or image file as an RGB PIL image."""
+    from PIL import Image
+    if n < 1:
+        raise ValueError(n)
+    if path.suffix.lower() in IMAGE:
+        with Image.open(path) as im:
+            im.seek(n - 1)  # multi-page TIFF; EOFError (an OSError) past the last page
+            return im.convert("RGB")
+    if path.suffix.lower() not in PDF:
+        raise ValueError(f"{path.suffix}: no pages")
+    import pypdfium2 as pdfium
+    from docling.utils.locks import pypdfium2_lock
+    with pypdfium2_lock:
+        doc = pdfium.PdfDocument(path)
+        try:
+            if n > len(doc):
+                raise IndexError(n)
+            return doc[n - 1].render(scale=dpi / 72).to_pil().convert("RGB")
+        finally:
+            doc.close()
+
+
 def render_pages(pdf: Path, pages: list[int], out_dir: Path, dpi: int) -> list[Path]:
     """Rasterise 1-based `pages` to PNG files (one page in memory at a time)."""
     import pypdfium2 as pdfium

@@ -9,6 +9,8 @@
   function inline(s) {
     s = esc(s);
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    // Wiki-links (chapter notes): their title, marked as a link to another note of the vault.
+    s = s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => `<span class="wikilink" title="${target}">${alias || target}</span>`);
     // Offline preview: only the document's own assets and inline data; a remote image (tracking pixel) shows its alt text.
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, a, u) =>
       /^data:image\//i.test(u) ? `<img alt="${a}" src="${u}">`
@@ -33,16 +35,20 @@
     const fm = md.match(/^---\n([\s\S]*?)\n---\n/);  // YAML front matter -> properties box
     if (fm) {
       md = md.slice(fm[0].length);
-      const props = fm[1].split("\n").map(l => l.match(/^(\w+):\s*"?(.*?)"?$/)).filter(Boolean);
-      out.push("<dl class=\"props\">" + props.map(p => `<dt>${esc(p[1])}</dt><dd>${esc(p[2].replace(/\\"/g, '"'))}</dd>`).join("") + "</dl>");
+      const props = fm[1].split("\n").map(l => l.match(/^(\w+):\s*(.*)$/)).filter(Boolean);
+      // "text" -> text, ["a", "b"] -> a, b, [[note]] -> note
+      const value = v => v.replace(/^\[(.*)\]$/, (_, l) => l.split(",").map(x => x.trim().replace(/^"|"$/g, "")).join(", "))
+        .replace(/^"(.*)"$/, "$1").replace(/\\"/g, '"').replace(/^\[\[(.*)\]\]$/, "$1");
+      out.push("<dl class=\"props\">" + props.map(p => `<dt>${esc(p[1])}</dt><dd>${esc(value(p[2]))}</dd>`).join("") + "</dl>");
     }
-    md = md.replace(/<!--[\s\S]*?-->/g, "");
+    md = md.replace(/<!--(?! pagina \d+ -->)[\s\S]*?-->/g, "");  // page markers become anchors (RAG option)
     const lines = md.split("\n");
     let i = 0;
     while (i < lines.length) {
       const l = lines[i];
       if (!l.trim()) { i++; continue; }
       let m;
+      if ((m = l.match(/^<!-- pagina (\d+) -->$/))) { out.push(`<span class="page-mark" id="pagina-${m[1]}"></span>`); i++; continue; }
       if ((m = l.match(/^(#{1,6})\s+(.*)$/))) { out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++; continue; }
       if (l.startsWith("```")) {
         const buf = []; i++;
@@ -72,7 +78,7 @@
         out.push(`<blockquote>${inline(buf.join(" "))}</blockquote>`); continue;
       }
       const buf = [];
-      while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\||\$\$)/.test(lines[i].trim())) buf.push(lines[i++]);
+      while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\||\$\$|<!-- pagina)/.test(lines[i].trim())) buf.push(lines[i++]);
       if (!buf.length) buf.push(lines[i++]);
       out.push(`<p>${inline(buf.join(" "))}</p>`);
     }

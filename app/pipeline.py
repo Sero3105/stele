@@ -584,6 +584,7 @@ def convert_file(src: Path, ctx: Context) -> dict:
         "engines": sorted(ctx.engines_used), "analysis": info.as_dict(), "notes": ctx.notes,
         "resumed_pages": ctx.resumed_pages,
         "escalated_pages": [p.page_no for p in pages if "escalated_from" in p.data],
+        "review": review(pages, info),
         "pages": [{"page": p.page_no, "engine": p.engine, "quality": p.quality,
                    **{k: v for k, v in p.data.items() if k != "blocks"}} for p in pages],
     }
@@ -591,7 +592,35 @@ def convert_file(src: Path, ctx: Context) -> dict:
     shutil.rmtree(assets, ignore_errors=True)  # published copies live in out_dir/assets
     return {"pages": len(pages), "page_kinds": info.counts(), "language": info.language,
             "seconds": report["seconds"], "engines": report["engines"], "resumed_pages": ctx.resumed_pages,
-            "escalated_pages": report["escalated_pages"], "markdown": str(md_path), "report": report}
+            "escalated_pages": report["escalated_pages"], "review": report["review"],
+            "pageable": info.family in ("pdf", "image"), "source_pages": info.page_count,
+            "markdown": str(md_path), "report": report}
+
+
+def review(pages: list[PageOutput], info: FileInfo) -> list[dict]:
+    """Pages worth a look by hand, with the reason: text that still looks wrong, or pages that
+    were read a second time. Only scans and PDFs: office files and text have exact text."""
+    if info.family not in ("pdf", "image"):
+        return []
+    kinds = {p.number: p.kind for p in info.pages}
+    out = []
+    for p in pages:
+        if not p.page_no or p.engine == BLANK:
+            continue
+        d = p.data
+        # A digital page's text layer is exact: its "misspelled" words are really in the document.
+        spelling = 0.0 if kinds.get(p.page_no) == "digital" and p.engine == DOCLING.name else d.get("misspelled", 0.0)
+        bad = router.bad_text(p.quality or 0.0, spelling, d.get("words", 0))
+        if rejected := d.get("escalation_rejected"):
+            why = f"{rejected['reason']}: la seconda lettura non era migliore"
+        elif escalated := d.get("escalated_from"):
+            why = f"{bad} anche dopo una seconda lettura" if bad else f"riletta ({escalated['reason']})"
+        elif bad:
+            why = bad
+        else:
+            continue
+        out.append({"page": p.page_no, "reason": why})
+    return out
 
 
 def _reanalyze_image(pdf: Path, info: FileInfo) -> FileInfo:

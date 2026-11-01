@@ -5,6 +5,7 @@ Run:  .venv/bin/python -m app.main
 
 from __future__ import annotations
 
+import io
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -12,12 +13,13 @@ from pathlib import Path, PurePosixPath
 
 import psutil
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import config, models, pipeline
+from app.analyzer import page_image
 from app.export import content_disposition, document_entries, folder_names, readme, stream_zip
 from app.jobs import (JobStore, Scheduler, download_finished, download_started, result_dir,
                       safe_relative_path)
@@ -156,6 +158,21 @@ def get_asset(fid: int, name: str):
     if target.parent != base or not target.is_file():
         raise HTTPException(404)
     return FileResponse(target)
+
+
+@app.get("/api/files/{fid}/pages/{n}")
+def get_page(fid: int, n: int):
+    """Original page n of a PDF or image, as PNG: shown next to the Markdown in the preview."""
+    f, _ = _done_file(fid)
+    src = _upload(f)
+    try:
+        im = page_image(src, n, dpi=110)
+    except (OSError, ValueError, IndexError) as exc:
+        raise HTTPException(404, "Pagina non disponibile") from exc
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    im.close()
+    return Response(buf.getvalue(), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 
 def _zip_response(job_id: str, entries: list, filename: str) -> StreamingResponse:

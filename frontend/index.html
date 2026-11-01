@@ -104,13 +104,56 @@
   <div class="dlg-head">
     <strong id="preview-title"></strong>
     <div class="row">
-      <button id="preview-raw" class="ghost">Sorgente Markdown</button>
+      <div id="preview-tools" class="row">
+        <button id="preview-copy" class="ghost" title="Copia il Markdown negli appunti">Copia</button>
+        <button id="preview-edit-btn" class="ghost" title="Correggi il testo a mano">Modifica</button>
+        <button id="preview-compare-btn" class="ghost hidden" title="Cosa è cambiato rispetto alla versione precedente">Confronta</button>
+        <button id="preview-page-toggle" class="ghost hidden" aria-controls="preview-page" aria-pressed="false">Pagina originale</button>
+        <button id="preview-raw" class="ghost" aria-pressed="false">Markdown</button>
+      </div>
+      <div id="edit-actions" class="row hidden">
+        <button id="edit-cancel" class="ghost">Annulla</button>
+        <button id="edit-save" class="primary">Salva</button>
+      </div>
       <button id="preview-close" class="ghost" aria-label="Chiudi anteprima">✕</button>
     </div>
   </div>
-  <iframe id="preview-frame" sandbox="allow-same-origin" title="Anteprima del documento"></iframe>
-  <pre id="preview-src" class="hidden"></pre>
+  <div id="preview-feedback" class="feedback hidden" aria-live="polite">
+    <span id="feedback-text"></span>
+    <span id="feedback-buttons" class="row">
+      <button data-rate="good" class="ghost" title="Il risultato va bene così">Buono</button>
+      <button data-rate="soso" class="ghost" title="Rilegge le pagine dubbie con un motore più accurato">Così così</button>
+      <button data-rate="improve" class="ghost" title="Riconverte tutto con il metodo più accurato">Da rifare</button>
+    </span>
+    <span id="feedback-hint" class="muted small">Così così rilegge le pagine dubbie · Da rifare riconverte tutto con il metodo più accurato · la versione attuale resta confrontabile</span>
+  </div>
+  <div id="preview-review" class="review hidden"></div>
+  <div id="preview-body" class="dlg-body">
+    <figure id="preview-page" class="page hidden">
+      <div class="page-nav">
+        <button id="page-prev" class="ghost" aria-label="Pagina precedente">‹</button>
+        <span id="page-num"></span>
+        <button id="page-next" class="ghost" aria-label="Pagina successiva">›</button>
+      </div>
+      <img id="page-img" alt="Pagina originale">
+    </figure>
+    <iframe id="preview-frame" sandbox="allow-same-origin" title="Anteprima del documento"></iframe>
+    <pre id="preview-src" class="hidden"></pre>
+    <textarea id="preview-edit" class="hidden" spellcheck="true" aria-label="Testo Markdown da correggere"></textarea>
+    <section id="preview-compare" class="compare hidden" aria-label="Confronto con la versione precedente">
+      <div class="compare-head">
+        <div id="compare-summary"></div>
+        <div class="row">
+          <button id="compare-restore" class="ghost">Torna alla precedente</button>
+          <button id="compare-keep" class="primary">Tieni questa versione</button>
+        </div>
+      </div>
+      <pre id="compare-diff" class="diff"></pre>
+    </section>
+  </div>
 </dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="/static/markdown.js"></script>
 <script src="/static/app.js"></script>
