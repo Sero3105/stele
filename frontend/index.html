@@ -27,7 +27,7 @@
           <label class="btn">Scegli file<input id="pick-files" type="file" multiple hidden></label>
           <label class="btn">Scegli cartella<input id="pick-folder" type="file" webkitdirectory multiple hidden></label>
         </div>
-        <small>PDF (digitali, scansionati, misti) · DOCX · PPTX · XLSX · DOC · RTF · ODT · HTML · CSV · TXT · MD · PNG · JPG · TIFF · BMP</small>
+        <small>PDF (digitali, scansionati, misti) · DOCX · PPTX · XLSX · DOC · RTF · ODT · HTML · CSV · TXT · MD · EPUB · EML · PNG · JPG · TIFF · BMP</small>
       </div>
 
       <div id="selection" class="selection hidden">
@@ -82,9 +82,15 @@
     </div>
 
     <div class="card">
+      <h2>Cerca nei documenti</h2>
+      <input id="search" type="search" placeholder="Parole da cercare in tutti i documenti convertiti" aria-label="Cerca nei documenti" autocomplete="off">
+      <ul id="search-results" class="results"></ul>
+    </div>
+
+    <div class="card">
       <h2>Conversioni recenti</h2>
       <ul id="history" class="history"></ul>
-      <small class="muted">Le conversioni vengono eliminate automaticamente dopo 7 giorni.</small>
+      <small class="muted">Le conversioni vengono eliminate automaticamente dopo 7 giorni, tranne quelle conservate.</small>
     </div>
   </section>
 
