@@ -86,11 +86,15 @@ class JobStore:
             return self._db.execute(sql, args).lastrowid
 
     # ---------------------------------------------------------------- jobs/files
-    def create_job(self, mode: str) -> str:
+    def create_job(self, mode: str, rag: bool = False, split: bool = False, pages: str = "") -> str:
         if mode not in router.MODES:
             raise ValueError(f"Modalità sconosciuta: {mode}")
+        pages = (pages or "").strip()
+        if pages and not pipeline.parse_pages(pages):
+            raise ValueError("Intervallo di pagine vuoto")
         job_id = uuid.uuid4().hex[:12]
-        self.x("INSERT INTO jobs(id, created, mode) VALUES (?,?,?)", (job_id, time.time(), mode))
+        self.x("INSERT INTO jobs(id, created, mode, rag, split, pages) VALUES (?,?,?,?,?,?)",
+               (job_id, time.time(), mode, int(rag), int(split), pages))
         return job_id
 
     def add_file(self, job_id: str, rel: PurePosixPath, size: int) -> tuple[int, Path]:
