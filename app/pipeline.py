@@ -84,9 +84,17 @@ class Context:
     name: str                           # original file name; the Markdown is <stem>.md
     mode: str = router.AUTO
     upload_root: Path | None = None     # images linked by Markdown/HTML may come from here (default: the file's folder)
+    rag: bool = False                   # page markers in the Markdown + chunks.jsonl
+    split: bool = False                 # one note per chapter + an index note linking them
+    pages: str = ""                     # PDFs: only these pages ("1-5, 8"); empty = all
+    # Asked by the user ("so-so"/"improve"): {"pages": [n, ...] or [] for all, "engine": "next" | "glm"}.
+    # Pages are re-read with a stronger engine than the ones already tried; the rest comes from checkpoints.
+    recheck: dict | None = None
+    rechecked: int = 0
     progress: Callable[[dict], None] = lambda _: None
     cancelled: Callable[[], bool] = lambda: False
     engines_used: set[str] = field(default_factory=set)
+    attachments: list[Path] = field(default_factory=list)  # e-mail attachments, saved in work_dir/allegati
     notes: list[str] = field(default_factory=list)  # internal report only
     resumed_pages: int = 0                          # pages taken from checkpoints after a restart
 
@@ -103,6 +111,18 @@ def safe_name(name: str) -> str:
     """File-system safe, still readable: keeps letters (any script), digits, spaces and . _ - ( )."""
     name = "".join(c if c.isalnum() or c in " ._-()" else "_" for c in name).strip(" .")
     return name or "documento"
+
+
+def parse_pages(spec: str, total: int | None = None) -> set[int]:
+    """'1-5, 8' -> {1, 2, 3, 4, 5, 8}; pages beyond `total` are dropped. ValueError if malformed."""
+    out: set[int] = set()
+    for part in filter(None, (x.strip() for x in spec.replace(";", ",").split(","))):
+        m = re.fullmatch(r"(\d+)\s*(?:[-–]\s*(\d+))?", part)
+        if not m or int(m.group(1)) < 1 or (m.group(2) and int(m.group(2)) < int(m.group(1))):
+            raise ValueError(f"Intervallo di pagine non valido: {part!r} (esempio: 1-5, 8)")
+        last = int(m.group(2) or m.group(1))
+        out.update(range(int(m.group(1)), min(last, total or last) + 1))
+    return out
 
 
 def _runs(pages: list[int], size: int = CHUNK_PAGES) -> list[list[int]]:
