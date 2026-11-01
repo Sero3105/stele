@@ -21,8 +21,9 @@ import traceback
 import uuid
 from pathlib import Path, PurePosixPath
 
-from app import config, pipeline, router
-from app.checkpoint import Busy
+from app import config, markdown, pipeline, router
+from app.quality import strip_markdown
+from app.checkpoint import PIPELINE_VERSION, Busy, atomic_write, file_sha256
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +38,20 @@ CREATE TABLE IF NOT EXISTS files (
 );
 CREATE INDEX IF NOT EXISTS files_state ON files(state, id);
 CREATE INDEX IF NOT EXISTS files_job ON files(job_id, state);
+CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(text, file_id UNINDEXED, tokenize='unicode61 remove_diacritics 2');
 """
+# Columns added after the first release: created on old databases too.
+COLUMNS = [("jobs", "rag", "INTEGER DEFAULT 0"),     # page markers + chunks.jsonl
+           ("jobs", "keep", "INTEGER DEFAULT 0"),    # never deleted by the retention cleanup
+           ("jobs", "split", "INTEGER DEFAULT 0"),   # one note per chapter
+           ("jobs", "pages", "TEXT DEFAULT ''"),     # PDFs: only these pages ("1-5, 8")
+           ("files", "mode", "TEXT"),                # set when a file is reconverted in another mode
+           ("files", "source_key", "TEXT"),          # sha256:mode:options:pipeline version of a done file
+           ("files", "feedback", "TEXT"),            # the user's rating of the current result
+           ("files", "recheck", "TEXT")]             # JSON: pages to re-read with a stronger engine
+# Linked images live outside .md/.html files; an e-mail's attachments become files of the job: never reuse.
+REUSE_SKIP = {".md", ".html", ".htm", ".eml"}
+RATINGS = ("good", "soso", "improve")
 
 
 def safe_relative_path(name: str) -> PurePosixPath:
@@ -57,6 +71,10 @@ class JobStore:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
+        for table, col, decl in COLUMNS:
+            if col not in {r[1] for r in self._db.execute(f"PRAGMA table_info({table})")}:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        self._db.execute("CREATE INDEX IF NOT EXISTS files_key ON files(source_key)")
         self._lock = threading.Lock()
 
     def q(self, sql: str, args: tuple = ()) -> list[sqlite3.Row]:
@@ -147,6 +165,21 @@ class JobStore:
         self.x("UPDATE files SET state='queued', mode=COALESCE(?, mode), recheck=?, stage='', error=NULL, "
                "pages_done=0, pages_total=0, started=NULL, finished=NULL WHERE id=?",
                (mode, json.dumps(recheck) if recheck else None, fid))
+
+    def finish(self, fid: int, summary: dict, source_key: str | None, text: str) -> None:
+        self.x("UPDATE files SET state='done', stage='', summary=?, engines=?, finished=?, source_key=?, "
+               "recheck=NULL, feedback=NULL, error=NULL, pages_done=pages_total WHERE id=?",
+               (json.dumps(summary, default=str), ", ".join(summary["engines"]), time.time(), source_key, fid))
+        self.index(fid, text)
+
+    def reusable(self, source_key: str, fid: int) -> sqlite3.Row | None:
+        rows = self.q("SELECT id, job_id, summary FROM files WHERE source_key=? AND state='done' AND id!=? "
+                      "ORDER BY finished DESC LIMIT 1", (source_key, fid))
+        return rows[0] if rows else None
+
+    def index(self, fid: int, markdown: str) -> None:
+        self.x("DELETE FROM search WHERE file_id=?", (fid,))
+        self.x("INSERT INTO search(text, file_id) VALUES (?,?)", (strip_markdown(markdown), fid))
 
     def delete(self, job_id: str) -> None:
         self.cancel(job_id)
@@ -300,11 +333,15 @@ class Scheduler:
                                name=rel.name, mode=row["mode"], upload_root=config.UPLOADS / job_id, progress=progress,
                                cancelled=lambda: self.store.is_cancelled(job_id))
         try:
-            summary = pipeline.convert_file(src, ctx)
-            summary.pop("report", None)  # per-page internals stay in the work dir
-            self.store.x("UPDATE files SET state='done', stage='', summary=?, engines=?, finished=?, "
-                         "pages_done=pages_total WHERE id=?",
-                         (json.dumps(summary, default=str), ", ".join(summary["engines"]), time.time(), fid))
+            key = None
+            if rel.suffix.lower() not in REUSE_SKIP and not ctx.split and not ctx.recheck and src.is_file():
+                key = f"{file_sha256(src)}:{ctx.mode}:{int(ctx.rag)}:{ctx.pages}:{PIPELINE_VERSION}"
+            prev = self.store.reusable(key, fid) if key else None
+            summary = reuse(prev, ctx) if prev else None
+            if summary is None:
+                summary = pipeline.convert_file(src, ctx)
+                summary.pop("report", None)  # per-page internals stay in the work dir
+            self.store.finish(fid, summary, key, pipeline.full_text(ctx.out_dir))
         except Busy as exc:  # another process holds this file's lock: leave it to that process
             log.warning("%s: %s", rel, exc)
             self.store.x("UPDATE files SET state='error', error=? WHERE id=?", (str(exc), fid))
@@ -318,3 +355,36 @@ class Scheduler:
                 msg = f"Memoria insufficiente: {msg}"
             self.store.x("UPDATE files SET state='error', error=?, engines=?, finished=? WHERE id=?",
                          (msg[:2000], ", ".join(sorted(ctx.engines_used)), time.time(), fid))
+
+
+def reuse(prev: sqlite3.Row, ctx: pipeline.Context) -> dict | None:
+    """Copy the published result of an identical, already converted file (renamed after this
+    file), or None if it can't be used (e.g. deleted meanwhile): then the file is converted."""
+    try:
+        src = result_dir(prev["job_id"], prev["id"])
+        old_md = next(src.glob("*.md"))
+        stage = ctx.work_dir / "final"
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.copytree(src, stage)
+        md = stage / f"{ctx.stem}.md"
+        if old_md.name != md.name:
+            (stage / old_md.name).rename(md)
+        meta = json.loads((stage / "metadata.json").read_text(encoding="utf-8"))
+        atomic_write(stage / "metadata.json", json.dumps(meta | {"source": ctx.name}, ensure_ascii=False, indent=2))
+        chunks = stage / "chunks.jsonl"
+        if chunks.exists():
+            rows = [json.loads(line) for line in chunks.read_text(encoding="utf-8").splitlines() if line]
+            for i, r in enumerate(rows, 1):
+                r.update(id=f"{ctx.stem}#{i}", source=ctx.name)
+            atomic_write(chunks, markdown.jsonl(rows))
+        if ctx.out_dir.exists():
+            shutil.rmtree(ctx.out_dir)
+        ctx.out_dir.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(stage, ctx.out_dir)
+    except (OSError, ValueError, StopIteration) as exc:
+        log.info("result of file %s not reusable (%s): converting", prev["id"], exc)
+        return None
+    summary = json.loads(prev["summary"])
+    return summary | {"markdown": str(ctx.out_dir / md.name), "reused": True, "seconds": 0, "resumed_pages": 0}
+
+

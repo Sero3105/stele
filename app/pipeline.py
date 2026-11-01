@@ -546,6 +546,18 @@ def write_tables(texts: list[str], assets: Path) -> None:
         atomic_write(assets / f"tabella_{i:03d}.csv", table_csv(rows))
 
 
+CHAPTERS_DIR = "capitoli"
+
+
+def full_text(out_dir: Path) -> str:
+    """The whole document: the main note, then each chapter note (body only) in order."""
+    md = next(out_dir.glob("*.md")).read_text(encoding="utf-8")
+    for note in sorted((out_dir / CHAPTERS_DIR).glob("*.md")):
+        body = re.sub(r"\A---\n.*?\n---\n\n?", "", note.read_text(encoding="utf-8"), flags=re.S)
+        md += "\n" + body.replace("](../assets/", "](assets/")  # read from the document folder, like the main note
+    return md
+
+
 def publish(md: str, pages: list[PageOutput], info: FileInfo, ctx: Context, chart_refs: set[str],
             seconds: float) -> Path:
     """Write <stem>.md + assets/ + metadata.json into a staging dir, then swap it into place, so
