@@ -282,7 +282,10 @@ def convert_pdf(pdf: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path
             report(f"pagine {run[0]}-{run[-1]}")
             res = DOCLING.convert(pdf, run, cancelled=ctx.cancelled)
             outs = {o.page_no: o for o in page_outputs(res, DOCLING.name, run, assets)}
+            boxes = formula_boxes(res) if ctx.mode != router.FAST else {}
             del res  # don't keep chunk documents (and their pictures) alive on long PDFs
+            if boxes:
+                decode_formulas(outs, boxes)
             for n in run:
                 got[n] = outs.get(n) or PageOutput(n, "", DOCLING.name)
                 _score(got[n], info.language)
