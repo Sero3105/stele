@@ -36,7 +36,7 @@ from app import charts, config, markdown, router
 from app.analyzer import IMAGE, FileInfo, analyze, render_pages, soffice
 from app.checkpoint import Checkpoint, atomic_write
 from app.engines.base import PageOutput
-from app.engines.docling_engine import DoclingEngine, page_outputs
+from app.engines.docling_engine import DoclingEngine, formula_boxes, page_outputs
 from app.engines.vision_engine import VisionEngine
 from app.engines.vlm_engine import VlmEngine, transfer_headings
 from app.office import pptx_notes, xlsx_details
@@ -66,6 +66,7 @@ FALLBACK = {router.VISION: router.DOCLING, router.PADDLE: router.GLM, router.GLM
 VISION_CHUNK = 8   # pages per Vision helper call; chunks run in parallel up to VISION's max_parallel
 VLM_GROUP = 4      # pages per VLM lease (the model stays loaded across them)
 BLANK = "pagina vuota"
+FORMULA_HOLE = f"<!-- {router.FORMULA_MARK} -->"
 
 
 def usable(key: str) -> str | None:
@@ -290,6 +291,38 @@ def convert_pdf(pdf: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path
             report(f"pagine {run[0]}-{run[-1]} completate")
         return got
 
+    def decode_formulas(outs: dict[int, PageOutput], boxes: dict[int, list[tuple]]) -> None:
+        """Docling finds display formulas on digital pages but can't read them: crop each one from
+        the page image and read it as LaTeX, so the exact text layer around it is kept."""
+        key = avail[router.PADDLE]
+        if key is None:
+            return  # no VLM installed: the page is escalated as before
+        crops, owners = [], []
+        for n, page_boxes in boxes.items():
+            if n not in outs or outs[n].markdown.count(FORMULA_HOLE) != len(page_boxes):
+                continue  # can't pair placeholders with boxes: leave the page to the escalation
+            with Image.open(image(n)) as im:
+                w, h = im.size
+                for left, top, right, bottom in page_boxes:
+                    pad = 0.005
+                    crops.append(im.crop((max(0, left - pad) * w, max(0, top - pad) * h,
+                                          min(1, right + pad) * w, min(1, bottom + pad) * h)).convert("RGB"))
+                    owners.append(n)
+        if not crops:
+            return
+        report("lettura delle formule")
+        ctx.engines_used.add(ENGINES[key].name)
+        texts = iter(ENGINES[key].recognize_crops(crops, "formula"))
+        for n in dict.fromkeys(owners):
+            parts = outs[n].markdown.split(FORMULA_HOLE)
+            md = parts[0]
+            for part in parts[1:]:
+                latex = next(texts).strip()
+                md += (latex if "$" in latex else f"$$\n{latex}\n$$") if latex else FORMULA_HOLE
+                md += part
+            outs[n].markdown = md
+            outs[n].data["formulas"] = len(parts) - 1
+
     def run_ocr(key: str, pages: list[int]) -> dict[int, PageOutput]:
         """Image engines; blank pages are skipped, chunks run concurrently under memory leases."""
         got, todo = {}, []
@@ -340,11 +373,14 @@ def convert_pdf(pdf: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path
 
     # 2. Escalation waves: Vision -> PaddleOCR-VL -> GLM-OCR, each page at most once per engine.
     #    Each page keeps exactly one result: the better of old and new (never both).
-    for _ in range(3):
+    #    A recheck asked by the user goes first, as a wave of its own.
+    forced = _recheck_plan(ctx.recheck, results, tried, avail) if ctx.recheck else {}
+    ctx.rechecked = sum(len(v) for v in forced.values())
+    for wave in range(4):
         wanted: dict[str, list[int]] = {}
         reasons: dict[int, str] = {}
         for n, out in results.items():
-            if out.engine == BLANK:
+            if out.engine == BLANK or wave == 0:
                 continue
             tables = sum(1 for b in out.data.get("blocks", []) if b.get("kind") == "table")
             esc = router.escalation(kinds[n], ctx.mode, _key(out.engine), out.markdown, out.quality,
@@ -652,6 +688,11 @@ def convert_file(src: Path, ctx: Context) -> dict:
             pdf = src if info.family == "pdf" else image_to_pdf(src, tmp / "image.pdf")
             if info.family == "image":
                 info = _reanalyze_image(pdf, info)
+            if ctx.pages:
+                wanted = parse_pages(ctx.pages, info.page_count)
+                info.pages = [p for p in info.pages if p.number in wanted]
+                if not info.pages:
+                    raise ValueError(f"Nessuna delle pagine richieste esiste: il documento ha {info.page_count} pagine")
             pages = convert_pdf(pdf, info, ctx, tmp, assets, cp)
         else:
             pages = convert_other(src, info, ctx, tmp, assets)
@@ -687,8 +728,36 @@ def convert_file(src: Path, ctx: Context) -> dict:
             "seconds": report["seconds"], "engines": report["engines"], "resumed_pages": ctx.resumed_pages,
             "escalated_pages": report["escalated_pages"], "review": report["review"],
             "pageable": info.family in ("pdf", "image"), "source_pages": info.page_count,
-            "markdown": str(md_path), "report": report}
+            "chapters": len(notes), "rechecked_pages": ctx.rechecked if ctx.recheck else None,
+            "attachments": [str(a) for a in ctx.attachments], "markdown": str(md_path), "report": report}
 
+
+def properties(pages: list[PageOutput], info: FileInfo, ctx: Context) -> dict:
+    """Front matter added to every converted document (Obsidian/Synapse properties)."""
+    return {"source": ctx.name, "pages": len(pages) if info.family in ("pdf", "image") else None,
+            "language": info.language, "converted": datetime.now().date().isoformat(), "tags": ["stele"]}
+
+
+CHAPTERS_DIR = "capitoli"
+
+
+def split_notes(blocks: list[markdown.Block], meta: dict, ctx: Context) -> tuple[str, dict[str, str]] | None:
+    """(index note, {file name: chapter note}) or None if the document has no chapters. Chapter
+    notes go in capitoli/, named '<stem> - 01 <title>.md' (unique in a vault, so wiki-links work);
+    the index note keeps the text before the first chapter and links every chapter."""
+    intro, chapters = markdown.split_chapters(blocks)
+    if not chapters:
+        return None
+    notes: dict[str, str] = {}
+    links = []
+    for i, (title, chapter) in enumerate(chapters, 1):
+        name = f"{ctx.stem} - {i:02d} {safe_name(title)[:60]}".strip()
+        props = {"title": title, "source": ctx.name, "pages": markdown.page_span(chapter), "up": f"[[{ctx.stem}]]",
+                 "tags": ["stele"]}
+        notes[f"{name}.md"] = markdown.document(chapter, props, markers=ctx.rag)
+        links.append(f"{i}. [[{name}|{title.replace('|', '-').replace(']', ')')}]]")
+    body = markdown.document(intro, meta | {"chapters": len(chapters)}, markers=ctx.rag)
+    return body.rstrip("\n") + ("\n\n" if intro else "") + "## Capitoli\n\n" + "\n".join(links) + "\n", notes
 
 def review(pages: list[PageOutput], info: FileInfo) -> list[dict]:
     """Pages worth a look by hand, with the reason: text that still looks wrong, or pages that

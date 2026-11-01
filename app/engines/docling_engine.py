@@ -117,6 +117,23 @@ def page_outputs(res, engine: str, pages: list[int] | None, assets: Path | None 
     return out
 
 
+def formula_boxes(res) -> dict[int, list[tuple[float, float, float, float]]]:
+    """Display formulas Docling found but could not decode, per page, in page order: boxes as
+    fractions of the page (left, top, right, bottom; top-left origin). The Markdown has one
+    "<!-- formula-not-decoded -->" for each, in the same order."""
+    from docling_core.types.doc import DocItemLabel
+    doc, out = res.document, {}
+    for item, _ in doc.iterate_items():
+        if item.label != DocItemLabel.FORMULA or getattr(item, "text", "") or not item.prov:
+            continue
+        prov = item.prov[0]
+        size = doc.pages[prov.page_no].size
+        bb = prov.bbox.to_top_left_origin(size.height)
+        out.setdefault(prov.page_no, []).append((bb.l / size.width, bb.t / size.height,
+                                                 bb.r / size.width, bb.b / size.height))
+    return out
+
+
 def _single_flow(res) -> bool:
     """DOCX/HTML/MD have no real pages (Docling may still create one): export them whole."""
     return res.input.format.value in ("docx", "html", "md", "csv", "asciidoc")

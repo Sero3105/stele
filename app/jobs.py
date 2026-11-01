@@ -379,18 +379,24 @@ class Scheduler:
             if summary is None:
                 summary = pipeline.convert_file(src, ctx)
                 summary.pop("report", None)  # per-page internals stay in the work dir
+            summary["previous"] = previous_dir(job_id, fid).is_dir()
+            self.add_attachments(job_id, rel, summary.pop("attachments", []))
             self.store.finish(fid, summary, key, pipeline.full_text(ctx.out_dir))
         except Busy as exc:  # another process holds this file's lock: leave it to that process
             log.warning("%s: %s", rel, exc)
-            self.store.x("UPDATE files SET state='error', error=? WHERE id=?", (str(exc), fid))
+            if not restored(f"Riconversione non riuscita: {exc}"):
+                self.store.x("UPDATE files SET state='error', error=? WHERE id=?", (str(exc), fid))
         except (pipeline.Cancelled, InterruptedError):  # InterruptedError: cancelled while waiting for memory
-            self.store.x("UPDATE files SET state='cancelled', finished=? WHERE id=?", (time.time(), fid))
+            if not restored("Riconversione annullata: resta il risultato precedente"):
+                self.store.x("UPDATE files SET state='cancelled', finished=? WHERE id=?", (time.time(), fid))
         except Exception as exc:  # any per-file failure is recorded, the batch continues
             log.warning("conversion failed for %s: %s", rel, exc)
             log.debug(traceback.format_exc())
             msg = str(exc) or type(exc).__name__
             if isinstance(exc, MemoryError):
                 msg = f"Memoria insufficiente: {msg}"
+            if restored(f"Riconversione non riuscita, resta il risultato precedente: {msg}"):
+                return
             self.store.x("UPDATE files SET state='error', error=?, engines=?, finished=? WHERE id=?",
                          (msg[:2000], ", ".join(sorted(ctx.engines_used)), time.time(), fid))
 
@@ -426,3 +432,31 @@ def reuse(prev: sqlite3.Row, ctx: pipeline.Context) -> dict | None:
     return summary | {"markdown": str(ctx.out_dir / md.name), "reused": True, "seconds": 0, "resumed_pages": 0}
 
 
+def keep_previous(job_id: str, fid: int, summary: str | None) -> bool:
+    """Before a reconversion: move the current result aside (with its summary) for comparison."""
+    out, prev = result_dir(job_id, fid), previous_dir(job_id, fid)
+    if not (summary and any(out.glob("*.md"))):
+        return False
+    shutil.rmtree(prev, ignore_errors=True)
+    os.replace(out, prev)
+    atomic_write(prev / "summary.json", summary)
+    return True
+
+
+def restore_previous(store: JobStore, fid: int) -> None:
+    """Swap the current result and the previous one (so the choice can be undone)."""
+    f = store.file(fid)
+    out, prev = result_dir(f["job_id"], fid), previous_dir(f["job_id"], fid)
+    if f["state"] != "done" or not (prev / "summary.json").is_file():
+        raise ValueError("Nessuna versione precedente da ripristinare")
+    old = json.loads((prev / "summary.json").read_text(encoding="utf-8"))
+    swap = prev.with_name(f"{fid}.swap")
+    shutil.rmtree(swap, ignore_errors=True)
+    os.replace(out, swap)
+    (prev / "summary.json").unlink()
+    os.replace(prev, out)
+    os.replace(swap, prev)
+    atomic_write(prev / "summary.json", json.dumps(f["summary"], default=str))
+    md = next(out.glob("*.md"))
+    store.set_summary(fid, old | {"markdown": str(md), "previous": True})
+    store.index(fid, pipeline.full_text(out))

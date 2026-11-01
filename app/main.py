@@ -5,7 +5,9 @@ Run:  .venv/bin/python -m app.main
 
 from __future__ import annotations
 
+import difflib
 import io
+import json
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -155,6 +157,64 @@ def _requeue(f: dict, mode: str | None = None, recheck: dict | None = None) -> N
 
 def _upload(f: dict) -> Path:
     return config.UPLOADS / f["job_id"] / Path(*PurePosixPath(f["rel_path"]).parts)
+
+
+@app.post("/api/files/{fid}/feedback")
+async def feedback(fid: int, request: Request):
+    """The user's rating of a result: "good" keeps it; "soso" re-reads the pages to check (all
+    pages if none) with a stronger engine; "improve" reconverts in Advanced mode, or, if it
+    already was Advanced, re-reads every page with GLM-OCR. The replaced result is kept."""
+    f, _ = _done_file(fid)
+    rating = (await request.json()).get("rating")
+    try:
+        store.rate(fid, rating)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if rating == "good":
+        return {"action": "none"}
+    s = f["summary"] or {}
+    if not s.get("pageable"):
+        raise HTTPException(409, "Solo PDF e immagini si possono rileggere: il testo degli altri formati è già esatto")
+    mode = store.q("SELECT COALESCE(f.mode, j.mode) m FROM files f JOIN jobs j ON j.id=f.job_id WHERE f.id=?",
+                   (fid,))[0]["m"]
+    if rating == "soso":
+        _requeue(f, recheck={"pages": [p["page"] for p in s.get("review") or []], "engine": "next"})
+        return {"action": "recheck"}
+    if mode != "advanced":
+        _requeue(f, mode="advanced")
+        return {"action": "reconvert"}
+    _requeue(f, recheck={"pages": [], "engine": "glm"})
+    return {"action": "recheck"}
+
+
+@app.get("/api/files/{fid}/compare")
+def compare(fid: int):
+    """What the last reconversion changed: a line diff of the two versions and their numbers."""
+    f, out = _done_file(fid)
+    prev = previous_dir(f["job_id"], fid)
+    if not (prev / "summary.json").is_file():
+        raise HTTPException(404, "Nessuna versione precedente")
+    old_summary = json.loads((prev / "summary.json").read_text(encoding="utf-8"))
+
+    def side(folder: Path, summary: dict) -> tuple[dict, list[str]]:
+        text = pipeline.full_text(folder)
+        meta = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+        return {"mode": meta.get("mode"), "words": len(text.split()), "review": len(summary.get("review") or []),
+                "converted_at": meta.get("converted_at")}, text.splitlines()
+    (before, a), (after, b) = side(prev, old_summary), side(out, f["summary"] or {})
+    diff = list(difflib.unified_diff(a, b, lineterm="", n=2))[2:5002]  # no file headers; bounded
+    return {"previous": before, "current": after, "diff": diff}
+
+
+@app.post("/api/files/{fid}/restore")
+def restore(fid: int):
+    """Go back to the previous version (the current one becomes the previous: undoable)."""
+    _done_file(fid)
+    try:
+        restore_previous(store, fid)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True}
 
 
 @app.get("/api/search")

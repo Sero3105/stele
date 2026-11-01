@@ -33,7 +33,10 @@ FORMULA_MARK = "formula-not-decoded"
 # Escalations made for structure (not for misread text): the stronger engine's output is wanted
 # even if a word count drops, e.g. formulas rewritten as LaTeX.
 TABLES, FORMULAS, FORMULAS_UNDECODED = "tabelle: serve la struttura", "formule", "formule non decodificate"
-STRUCTURAL = {TABLES, FORMULAS, FORMULAS_UNDECODED}
+# A recheck the user asked for (result judged "so-so" or "to improve"): the stronger engine's
+# reading is wanted unless it is empty or garbled.
+REQUESTED = "ricontrollo richiesto"
+STRUCTURAL = {TABLES, FORMULAS, FORMULAS_UNDECODED, REQUESTED}
 _MATH = re.compile(r"[=^√∑∫±∞≤≥≠∂∆πλμσ]|\b\d+\s*/\s*\d+\b")
 
 

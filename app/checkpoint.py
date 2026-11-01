@@ -93,6 +93,3 @@ class Checkpoint:
 
     def save(self, rec: dict) -> None:
         atomic_write(self.pages_dir / f"{int(rec['page']):05d}.json", json.dumps(rec, ensure_ascii=False, default=str))
-
-    def clear(self) -> None:
-        shutil.rmtree(self.pages_dir, ignore_errors=True)

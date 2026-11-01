@@ -106,6 +106,7 @@ def _plain_math(m: re.Match) -> str:
 
 def clean_output(text: str) -> str:
     text = re.sub(r"<\|[^>]*\|>|</?(s|im_start|im_end)>", "", text)
+    text = re.sub(r"^\s*\\\[(.*)\\\]\s*$", r"\1", text, flags=re.S)  # a lone \[...\] formula: callers add $$
     text = re.sub(r"\\\((.+?)\\\)", lambda m: "$" + m.group(1).replace("{{", "{").replace("}}", "}") + "$", text)
     text = re.sub(r"(?<!\$)\$([^$\n]+)\$(?!\$)", _plain_math, text)
     text = otsl_to_md(text)
@@ -211,6 +212,15 @@ class VlmEngine(Engine):
             for rec, text in zip(owners, self._generate_many(model, processor, items)):
                 rec["text"] = clean_output(text)
             return [(_blocks_markdown(recs), {"blocks": recs}) for recs in pages]
+        return self.run(work)
+
+    def recognize_crops(self, images: list[Image.Image], task: str) -> list[str]:
+        """One task prompt ("formula", "table", "text") per already-cropped region."""
+        def work(obj):
+            with _MLX_LOCK:
+                model, processor, _ = obj
+                items = [(im, PROMPTS[self.family][task], 1024) for im in images]
+                return [clean_output(t) for t in self._generate_many(model, processor, items)]
         return self.run(work)
 
     def chart_tables(self, images: list[Image.Image]) -> list[str | None]:
