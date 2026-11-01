@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-01
+
 ### Added
 
 - Pages to check: the preview lists pages whose text still looks doubtful or that were read
@@ -83,4 +85,5 @@ First stable release: offline document-to-Markdown conversion on Apple Silicon.
 - Vision helper output parsed line by line; resource manager deadlock when evicting idle
   models; local server hardening (allowed hosts) and conversion edge cases.
 
+[1.1.0]: https://github.com/Sero3105/stele/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Sero3105/stele/releases/tag/v1.0.0
