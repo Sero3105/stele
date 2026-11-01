@@ -6,6 +6,10 @@ round-robin across jobs, so a single file is not stuck behind a big folder; how 
 actually run at once is decided by the ResourceManager leases inside the engines, so the
 thread count is only an upper bound. State lives in SQLite: after a restart, files that
 were running are re-queued and converted again.
+
+A file identical to one already converted with the same options (same sha256, mode, RAG
+option and pipeline version) gets a copy of that result instead of a new conversion. Every
+converted document is indexed for full-text search (SQLite FTS5).
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import threading
@@ -220,15 +225,16 @@ class JobStore:
 
     def delete(self, job_id: str) -> None:
         self.cancel(job_id)
+        self.x("DELETE FROM search WHERE file_id IN (SELECT id FROM files WHERE job_id=?)", (job_id,))
         self.x("DELETE FROM files WHERE job_id=?", (job_id,))
         self.x("DELETE FROM jobs WHERE id=?", (job_id,))
         for root in (config.UPLOADS, config.WORK, config.RESULTS):
             shutil.rmtree(root / job_id, ignore_errors=True)
 
     def expired(self, max_age_s: float) -> list[str]:
-        """Jobs older than max_age_s with nothing queued or running."""
+        """Jobs older than max_age_s, not kept, with nothing queued or running."""
         return [r["id"] for r in self.q(
-            "SELECT j.id FROM jobs j WHERE j.created < ? AND NOT EXISTS (SELECT 1 FROM files f "
+            "SELECT j.id FROM jobs j WHERE j.created < ? AND NOT j.keep AND NOT EXISTS (SELECT 1 FROM files f "
             "WHERE f.job_id=j.id AND f.state IN ('queued','running','uploading'))", (time.time() - max_age_s,))]
 
     def is_cancelled(self, job_id: str) -> bool:
@@ -385,9 +391,27 @@ class Scheduler:
             self.store.x(f"UPDATE files SET {', '.join(sets)} WHERE id=?", (*args, fid))
 
         ctx = pipeline.Context(out_dir=result_dir(job_id, fid), work_dir=config.WORK / job_id / str(fid),
-                               name=rel.name, mode=row["mode"], upload_root=config.UPLOADS / job_id, progress=progress,
-                               cancelled=lambda: self.store.is_cancelled(job_id))
+                               name=rel.name, mode=row["run_mode"], upload_root=config.UPLOADS / job_id, progress=progress,
+                               cancelled=lambda: self.store.is_cancelled(job_id), rag=bool(row["rag"]),
+                               split=bool(row["split"]), pages=row["pages"] or "",
+                               recheck=json.loads(row["recheck"]) if row["recheck"] else None)
+        moved = False
+
+        def restored(note: str) -> bool:
+            """A failed or cancelled reconversion leaves the previous result in place."""
+            if not moved or any(ctx.out_dir.glob("*.md")):
+                return False
+            prev = previous_dir(job_id, fid)
+            (prev / "summary.json").unlink(missing_ok=True)
+            shutil.rmtree(ctx.out_dir, ignore_errors=True)
+            os.replace(prev, ctx.out_dir)  # an older previous version was replaced by this one: none left
+            self.store.set_summary(fid, json.loads(row["summary"]) | {"previous": False})
+            self.store.x("UPDATE files SET state='done', error=?, recheck=NULL, finished=? WHERE id=?",
+                         (note[:2000], time.time(), fid))
+            return True
+
         try:
+            moved = keep_previous(job_id, fid, row["summary"])
             key = None
             if rel.suffix.lower() not in REUSE_SKIP and not ctx.split and not ctx.recheck and src.is_file():
                 key = f"{file_sha256(src)}:{ctx.mode}:{int(ctx.rag)}:{ctx.pages}:{PIPELINE_VERSION}"

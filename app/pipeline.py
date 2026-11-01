@@ -394,7 +394,10 @@ def convert_pdf(pdf: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path
             if target and target not in tried[n]:
                 wanted.setdefault(target, []).append(n)
                 reasons[n] = esc[1]
-        if not wanted:
+        if wave == 0:
+            wanted = forced
+            reasons = {n: router.REQUESTED for pages in forced.values() for n in pages}
+        elif not wanted:
             break
         for key, pages in wanted.items():
             report(f"{len(pages)} pagine da rileggere con un motore più accurato")
@@ -503,10 +506,88 @@ def _demote(md: str, by: int) -> str:
     return re.sub(r"^(#{1,6})(?=\s)", lambda m: "#" * min(6, len(m.group(1)) + by), md, flags=re.M)
 
 
+def _epub_opf(src: Path) -> tuple[zipfile.ZipFile, str, ET.Element]:
+    """(open archive, path of the package document, its XML root)."""
+    z = zipfile.ZipFile(src)
+    if "META-INF/encryption.xml" in z.namelist():
+        z.close()
+        raise ValueError("EPUB protetto (DRM): il contenuto è cifrato e non si può leggere")
+    container = ET.fromstring(z.read("META-INF/container.xml"))
+    opf = container.find(".//{*}rootfile").get("full-path")
+    return z, opf, ET.fromstring(z.read(opf))
+
+
+def convert_epub(src: Path, ctx: Context, tmp: Path, assets: Path) -> list[PageOutput]:
+    """An EPUB is a ZIP of XHTML pages: each page of the reading order goes through the HTML path,
+    with its pictures (confined to the extracted book)."""
+    z, opf, pkg = _epub_opf(src)
+    root = tmp / "epub"
+    with z:
+        z.extractall(root)  # zipfile drops absolute paths and '..' parts
+    items = {i.get("id"): i for i in pkg.findall(".//{*}item")}
+    base = (root / opf).parent
+    pages = []
+    for ref in pkg.findall(".//{*}itemref"):
+        item = items.get(ref.get("idref"))
+        if item is None or ref.get("linear") == "no" or "html" not in (item.get("media-type") or ""):
+            continue
+        page = base / unquote(item.get("href"))
+        html = page.with_suffix(".html")  # Docling picks the backend by extension
+        shutil.copyfile(page, html)
+        ctx.check()
+        ctx.progress({"stage": f"capitolo {len(pages) + 1}"})
+        res = DOCLING.convert(html, cancelled=ctx.cancelled)
+        md = "\n\n".join(o.markdown for o in page_outputs(res, DOCLING.name, None, None))
+        pages.append(PageOutput(0, link_images(md, html, root, assets), DOCLING.name))
+    ctx.engines_used.add(DOCLING.name)
+    if not pages:
+        raise ValueError("EPUB senza capitoli leggibili")
+    return pages
+
+
+def convert_email(src: Path, ctx: Context, tmp: Path) -> list[PageOutput]:
+    """Header, body (HTML through Docling, else plain text) and the list of attachments; the
+    attachments themselves are saved for conversion as separate documents."""
+    msg = email.message_from_bytes(src.read_bytes(), policy=email.policy.default)
+    head = [f"**{label}:** {msg[key]}" for label, key in (("Da", "From"), ("A", "To"), ("Cc", "Cc"), ("Data", "Date"))
+            if msg[key]]
+    body = msg.get_body(preferencelist=("html", "plain"))
+    text = ""
+    if body is not None and body.get_content_subtype() == "html":
+        html = tmp / "messaggio.html"
+        html.write_text(body.get_content(), encoding="utf-8")
+        text = "\n\n".join(o.markdown for o in page_outputs(DOCLING.convert(html, cancelled=ctx.cancelled),
+                                                           DOCLING.name, None, None))
+        text = text.replace(_HOLE, "")  # inline pictures (cid:) are not files
+        ctx.engines_used.add(DOCLING.name)
+    elif body is not None:
+        text = body.get_content()
+    folder = ctx.work_dir / "allegati"
+    names = []
+    for part in msg.iter_attachments():
+        name = part.get_filename()
+        if not name:
+            continue
+        data = part.get_content()
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / safe_name(Path(name).name)
+        path.write_bytes(data if isinstance(data, bytes) else str(data).encode())
+        ctx.attachments.append(path)
+        names.append(path.name)
+    md = f"# {msg['Subject'] or '(senza oggetto)'}\n\n" + "  \n".join(head) + "\n\n" + text.strip()
+    if names:
+        md += "\n\n## Allegati\n\n" + "\n".join(f"- {n}" for n in names)
+    return [PageOutput(0, md, "email")]
+
+
 def convert_other(src: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path) -> list[PageOutput]:
     path = src
     if info.family == "text":
         return [PageOutput(0, src.read_text(encoding="utf-8", errors="replace"), "testo")]
+    if info.family == "epub":
+        return convert_epub(src, ctx, tmp, assets)
+    if info.family == "email":
+        return convert_email(src, ctx, tmp)
     if info.family == "legacy":
         path = _legacy_to_modern(src, tmp)
     ctx.progress({"stage": "conversione"})
