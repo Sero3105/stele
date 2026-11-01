@@ -1,5 +1,6 @@
 """Fast unit tests: routing policy, quality signals, resource admission, parsers."""
 
+import json
 import threading
 import time
 from pathlib import Path, PurePosixPath
@@ -340,3 +341,99 @@ def test_xlsx_details_keeps_chart_sheets_in_order(tmp_path):
     sheets = xlsx_details(tmp_path / "x.xlsx")
     assert [s["name"] for s in sheets] == ["Dati", "Grafico", "Riepilogo"]
     assert sheets[0]["formulas"][0]["formula"] == "=A1*2" and sheets[2]["formulas"] == []
+
+
+def test_guess_language_any_language_and_too_little_text():
+    from app.quality import guess_language
+    assert guess_language("Questa relazione descrive il consumo energetico degli edifici comunali nel corso "
+                          "dell'anno, con dati raccolti ogni mese dai contatori.") == "it"
+    assert guess_language("Ce rapport décrit la consommation d'énergie des bâtiments municipaux au cours de "
+                          "l'année, avec des données recueillies chaque mois.") == "fr"
+    assert guess_language("Dieser Bericht beschreibt den Energieverbrauch der städtischen Gebäude im Laufe des "
+                          "Jahres, mit monatlich erfassten Daten der Zähler.") == "de"
+    assert guess_language("Tabella 1 2450 182300 74,4") is None
+
+
+def test_clean_output_unwraps_display_formula():
+    assert clean_output(r"\[\int_0^1 x\,dx\]") == r"\int_0^1 x\,dx"
+    assert clean_output(r"testo \[x\] testo") == r"testo \[x\] testo"
+
+
+def test_table_csv_unescapes_pipes_and_quotes():
+    from app.pipeline import table_csv
+    assert table_csv([["A", "B"], ["1 \\| 2", 'dice "ciao", poi']]) == 'A,B\n1 | 2,"dice ""ciao"", poi"\n'
+
+
+def test_search_index_words_prefixes_accents_and_syntax(tmp_path):
+    store = JobStore(tmp_path / "db.sqlite3")
+    job = store.create_job("auto")
+    fid, _ = store.add_file(job, PurePosixPath("a.pdf"), 1)
+    store.finish(fid, {"engines": []}, None, "# Relazione\n\nConsumo energetico della città, **2024**.")
+    assert [h["id"] for h in store.search("citta energ")] == [fid]      # accents ignored, prefixes match
+    assert "\x02" in store.search("consumo")[0]["snippet"]
+    assert store.search('"AND OR ( * -') == [] and store.search("") == []  # user text is never FTS5 syntax
+    assert store.search("bilancio") == []
+    store.delete(job)
+    assert store.search("consumo") == []
+
+
+def test_kept_jobs_never_expire_and_old_databases_are_migrated(tmp_path):
+    import sqlite3
+    db = tmp_path / "db.sqlite3"
+    old = sqlite3.connect(db)  # schema of the first release
+    old.executescript("CREATE TABLE jobs (id TEXT PRIMARY KEY, created REAL, mode TEXT, cancelled INTEGER DEFAULT 0);"
+                      "CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT, rel_path TEXT, size INTEGER,"
+                      " state TEXT, stage TEXT DEFAULT '', pages_done INTEGER DEFAULT 0, pages_total INTEGER DEFAULT 0,"
+                      " engines TEXT DEFAULT '', summary TEXT, error TEXT, created REAL, started REAL, finished REAL);"
+                      "INSERT INTO jobs VALUES ('vecchio', 0, 'auto', 0);")
+    old.commit()
+    old.close()
+    store = JobStore(db)
+    new = store.create_job("fast", rag=True)
+    store.x("UPDATE jobs SET created=0 WHERE id=?", (new,))
+    store.keep(new, True)
+    assert store.expired(60) == ["vecchio"]
+    assert store.job(new)["rag"] == 1
+
+
+def test_retry_requeues_in_another_mode(tmp_path):
+    store = JobStore(tmp_path / "db.sqlite3")
+    job = store.create_job("fast")
+    fid, _ = store.add_file(job, PurePosixPath("a.pdf"), 1)
+    store.mark_uploaded(fid, 1)
+    with pytest.raises(ValueError):
+        store.retry(fid)  # still queued
+    store.cancel(job)
+    store.retry(fid, "advanced")
+    row = store.claim()
+    assert row["id"] == fid and row["run_mode"] == "advanced"  # the job itself stays "fast"
+    assert store.job(job)["mode"] == "fast"
+
+
+def test_parse_pages():
+    from app.pipeline import parse_pages
+    assert parse_pages("1-3, 8", 5) == {1, 2, 3} and parse_pages(" 2 ;4-4") == {2, 4}
+    for bad in ("0", "3-1", "a", "1-"):
+        with pytest.raises(ValueError):
+            parse_pages(bad)
+
+
+def test_job_options_rating_and_recheck_reach_the_worker(tmp_path):
+    store = JobStore(tmp_path / "db.sqlite3")
+    with pytest.raises(ValueError):
+        store.create_job("auto", pages="5-2")
+    job = store.create_job("auto", split=True, pages="1-2")
+    fid, _ = store.add_file(job, PurePosixPath("a.pdf"), 1)
+    store.mark_uploaded(fid, 1)
+    store.claim()
+    store.finish(fid, {"engines": [], "review": []}, None, "testo")
+    store.rate(fid, "soso")
+    with pytest.raises(ValueError):
+        store.rate(fid, "boh")
+    store.retry(fid, recheck={"pages": [2], "engine": "next"})
+    row = store.claim()
+    assert row["split"] == 1 and row["pages"] == "1-2" and json.loads(row["recheck"]) == {"pages": [2], "engine": "next"}
+    assert store.file(fid)["summary"] == {"engines": [], "review": []}  # kept for the previous version
+    store.finish(fid, {"engines": []}, None, "testo")
+    f = store.file(fid)
+    assert f["recheck"] is None and f["feedback"] is None  # a new result is rated again

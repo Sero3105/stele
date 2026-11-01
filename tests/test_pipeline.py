@@ -31,7 +31,8 @@ def test_digital_pdf_uses_text_layer_only(tmp_path):
     assert md.index("Metodologia") < md.index("Risultati") < md.index("Conclusioni")  # page 1 before page 2
     assert "<!--" not in md                                                             # no engine/page comments
     # One document folder, nothing intermediate: the chart picture is a linked asset.
-    assert published(tmp_path) == {"digital_it.md", "metadata.json", "assets", "assets/immagine_001.png"}
+    assert published(tmp_path) == {"digital_it.md", "metadata.json", "assets", "assets/immagine_001.png",
+                                   "assets/tabella_001.csv"}
     assert "](assets/immagine_001.png)" in md
     meta = json.loads((tmp_path / "out" / "metadata.json").read_text())
     assert meta["source"] == "digital_it.pdf" and meta["pages"] == 2 and meta["mode"] == "auto"
@@ -42,7 +43,20 @@ def test_scanned_table_page_goes_to_paddle(tmp_path):
     s, md, data = run(tmp_path, "scan_clean300_it.pdf")
     p1 = data["pages"][0]
     assert p1["engine"].startswith("paddleocr-vl") and "tabelle" in p1["escalated_from"]["reason"]
+    assert s["review"] == [{"page": 1, "reason": "riletta (tabelle: serve la struttura)"}] and s["pageable"]
     assert "| Scuola Rossi | 2450 | 182300 | 74,4 |" in md
+
+
+def test_rag_option_page_markers_and_chunks(tmp_path):
+    s, md, _ = run(tmp_path, "digital_it.pdf", rag=True)
+    assert md.index("<!-- pagina 1 -->") < md.index("## Metodologia") < md.index("<!-- pagina 2 -->") < md.index("## Conclusioni")
+    rows = [json.loads(line) for line in (tmp_path / "out" / "chunks.jsonl").read_text().splitlines()]
+    assert rows[0]["id"] == "digital_it#1" and rows[0]["source"] == "digital_it.pdf"
+    assert next(r for r in rows if r["headings"][-1] == "Metodologia")["pages"] == [1]
+    assert next(r for r in rows if r["headings"][-1] == "Conclusioni")["pages"] == [2]
+    assert all(r["engines"] == ["docling-ocrmac"] for r in rows)
+    assert any("](assets/immagine_001.png)" in r["text"] for r in rows)  # same links as the Markdown
+    assert not s["review"]
 
 
 def test_fast_mode_uses_only_light_engines(tmp_path):
@@ -81,7 +95,8 @@ def test_xlsx_sheets_formulas(tmp_path):
     assert "`B7`: `=SUM(B3:B6)`" in md
     meta = json.loads((tmp_path / "out" / "metadata.json").read_text())
     assert [s["name"] for s in meta["sheets"]] == ["Consumi", "Spiagge"] and meta["sheets"][0]["merged_cells"] == ["A1:D1"]
-    assert published(tmp_path) == {"office_data.md", "metadata.json"}
+    assert published(tmp_path) == {"office_data.md", "metadata.json", "assets", "assets/tabella_001.csv",
+                                   "assets/tabella_002.csv"}
 
 
 def test_docx(tmp_path):
@@ -129,7 +144,7 @@ def test_special_characters_in_file_name(tmp_path):
 def test_work_files_stay_internal(tmp_path):
     run(tmp_path, "scan_clean300_it.pdf")
     work = {p.name for p in (tmp_path / "work").iterdir()}
-    assert "pages" not in work and "assets" not in work  # checkpoints/assets cleaned after publishing
+    assert "assets" not in work  # assets cleaned after publishing; page checkpoints stay for a later recheck
     assert "report.json" in work                          # internal report kept out of the result
 
 
@@ -139,3 +154,17 @@ def test_image_links_outside_the_document_are_never_read(tmp_path):
     ctx = Context(out_dir=tmp_path / "out", work_dir=tmp_path / "work", name=src.name)
     md = Path(convert_file(src, ctx)["markdown"]).read_text()
     assert "assets" not in published(tmp_path) and "hosts" not in md and "segreto" in md
+
+
+def test_recheck_rereads_only_the_asked_pages_with_a_stronger_engine(tmp_path):
+    _, _, first = run(tmp_path, "scan_clean300_it.pdf")
+    engines = [p["engine"] for p in first["pages"]]
+    assert engines[1] == "apple-vision"  # page 2: plain text, read by Vision
+    s, md, data = run(tmp_path, "scan_clean300_it.pdf", recheck={"pages": [2], "engine": "next"})
+    assert s["rechecked_pages"] == 1 and data["resumed_pages"] == 2  # page 1 straight from its checkpoint
+    assert [p["engine"] for p in data["pages"]] == [engines[0], engines[0]]  # page 2 now read by PaddleOCR-VL
+    assert data["pages"][1]["escalated_from"]["reason"] == "ricontrollo richiesto"
+    s, _, data = run(tmp_path, "scan_clean300_it.pdf", recheck={"pages": [], "engine": "glm"})
+    assert s["rechecked_pages"] == 2 and {p["engine"] for p in data["pages"]} == {"glm-ocr-4bit:page"}
+    s, _, _ = run(tmp_path, "scan_clean300_it.pdf", recheck={"pages": [], "engine": "glm"})
+    assert s["rechecked_pages"] == 0  # nothing stronger left

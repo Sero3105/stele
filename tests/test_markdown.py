@@ -146,3 +146,62 @@ def test_visual_lines_from_ocr_rejoined_into_paragraphs():
 def test_separate_sentences_stay_separate_paragraphs():
     md = assemble(["Primo paragrafo concluso.\n\nSecondo paragrafo.\n\nterzo in minuscolo dopo un punto."])
     assert md.count("\n\n") == 2
+
+
+# ------------------------------------------------------------------ page markers and chunks (RAG)
+from app.markdown import MAX_CHUNK_CHARS, assemble_blocks, chunks, document  # noqa: E402
+
+
+def test_blocks_keep_their_source_pages_across_joins():
+    blocks = assemble_blocks(["## Uno\n\nIl comune ha avviato un programma di", "manutenzione.\n\n## Due\n\nAltro."], [3, 4])
+    assert [(b.text, b.pages) for b in blocks] == [
+        ("Uno", (3,)), ("Il comune ha avviato un programma di manutenzione.", (3, 4)), ("Due", (4,)), ("Altro.", (4,))]
+
+
+def test_page_markers_only_when_asked():
+    blocks = assemble_blocks(["Prima pagina.", "", "Terza pagina."], [1, 2, 3])
+    assert "<!--" not in document(blocks)
+    assert document(blocks, markers=True) == "<!-- pagina 1 -->\n\nPrima pagina.\n\n<!-- pagina 3 -->\n\nTerza pagina.\n"
+    assert "<!--" not in document(assemble_blocks(["Senza pagine."]), markers=True)  # DOCX, TXT...
+
+
+def test_chunks_follow_sections_with_heading_path_pages_and_engines():
+    blocks = assemble_blocks(["# Titolo\n\n## Metodo\n\nTesto del metodo.", "### Dettagli\n\nUno.\n\n## Risultati\n\nDue."],
+                             [1, 2])
+    got = chunks(blocks, {1: "docling-ocrmac", 2: "apple-vision"})
+    assert [(c["headings"], c["text"], c["pages"], c["engines"]) for c in got] == [
+        (["Titolo", "Metodo"], "## Metodo\n\nTesto del metodo.", [1], ["docling-ocrmac"]),
+        (["Titolo", "Metodo", "Dettagli"], "### Dettagli\n\nUno.", [2], ["apple-vision"]),
+        (["Titolo", "Risultati"], "## Risultati\n\nDue.", [2], ["apple-vision"]),
+    ]
+
+
+def test_long_section_is_split_without_losing_text():
+    paras = [f"Paragrafo {i} " + "parola " * 60 for i in range(20)]
+    got = chunks(assemble_blocks(["## Lungo\n\n" + "\n\n".join(paras)], [1]))
+    assert len(got) > 1 and all(c["headings"] == ["Lungo"] for c in got)
+    assert all(len(c["text"]) <= MAX_CHUNK_CHARS + 500 for c in got)
+    assert words(" ".join(c["text"] for c in got)) == words("Lungo " + " ".join(paras))
+
+
+# ------------------------------------------------------------------ properties and chapters
+from app.markdown import blocks_from_markdown, split_chapters  # noqa: E402
+
+
+def test_front_matter_keeps_numbers_and_lists():
+    assert front_matter({"title": "A", "pages": 3, "tags": ["stele"], "language": None}) == \
+        '---\ntitle: "A"\npages: 3\ntags: ["stele"]\n---\n\n'
+
+
+def test_chapters_at_the_first_repeated_heading_level():
+    intro, chapters = split_chapters(assemble_blocks(
+        ["## Relazione\n\n## Uno\n\nTesto uno.\n\n### Dettaglio\n\nAltro.", "## Due\n\nTesto due."], [1, 2]))
+    assert [(b.level, b.text) for b in intro] == [(1, "Relazione")]  # the title stays in the index note
+    assert [t for t, _ in chapters] == ["Uno", "Due"]
+    assert [(b.level, b.text) for b in chapters[0][1] if b.kind == "heading"] == [(1, "Uno"), (2, "Dettaglio")]
+    assert split_chapters(assemble_blocks(["# Solo\n\nTesto."]))[1] == []  # nothing to split
+
+
+def test_blocks_from_markdown_take_pages_from_markers():
+    blocks = blocks_from_markdown('---\ntitle: "x"\n---\n\n<!-- pagina 3 -->\n\nUno.\n\n<!-- pagina 4 -->\n\nDue.')
+    assert [(b.text, b.pages) for b in blocks] == [("Uno.", (3,)), ("Due.", (4,))]
