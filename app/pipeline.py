@@ -416,6 +416,25 @@ def convert_pdf(pdf: Path, info: FileInfo, ctx: Context, tmp: Path, assets: Path
     return [results[n] for n in sorted(results)]
 
 
+_STRONGER = {router.DOCLING: router.PADDLE, router.VISION: router.PADDLE, router.PADDLE: router.GLM}
+
+
+def _recheck_plan(recheck: dict, results: dict[int, PageOutput], tried: dict[int, set[str]],
+                  avail: dict[str, str | None]) -> dict[str, list[int]]:
+    """{engine: pages} for a recheck the user asked for: each page goes to the next stronger
+    engine it hasn't been read with yet ("glm": straight to GLM-OCR, the last resort)."""
+    plan: dict[str, list[int]] = {}
+    for n in sorted(set(recheck.get("pages") or results) & set(results)):
+        if results[n].engine == BLANK:
+            continue
+        key = router.GLM if recheck.get("engine") == "glm" else _STRONGER.get(_key(results[n].engine))
+        while key and (not avail.get(key) or avail[key] in tried[n]):  # missing engine: its fallback
+            key = _STRONGER.get(key)
+        if key:
+            plan.setdefault(avail[key], []).append(n)
+    return plan
+
+
 def _metrics(out: PageOutput) -> dict:
     return {"quality": out.quality or 0.0, "misspelled": out.data.get("misspelled", 0.0),
             "words": out.data.get("words", 0)}
