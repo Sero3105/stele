@@ -132,6 +132,22 @@ class JobStore:
         self.x("UPDATE files SET state='cancelled', finished=? WHERE job_id=? AND state IN ('queued','uploading')",
                (time.time(), job_id))
 
+    def retry(self, fid: int, mode: str | None = None, recheck: dict | None = None) -> None:
+        """Queue a finished, failed or cancelled file again, optionally in another mode or with
+        some pages re-read by a stronger engine (`recheck`, see pipeline.Context)."""
+        f = self.file(fid)
+        if f is None:
+            raise KeyError(fid)
+        if f["state"] not in ("done", "error", "cancelled"):
+            raise ValueError("Il documento è ancora in conversione")
+        if mode is not None and mode not in router.MODES:
+            raise ValueError(f"Modalità sconosciuta: {mode}")
+        self.x("UPDATE jobs SET cancelled=0 WHERE id=?", (f["job_id"],))
+        # The summary stays: it describes the result kept as the previous version.
+        self.x("UPDATE files SET state='queued', mode=COALESCE(?, mode), recheck=?, stage='', error=NULL, "
+               "pages_done=0, pages_total=0, started=NULL, finished=NULL WHERE id=?",
+               (mode, json.dumps(recheck) if recheck else None, fid))
+
     def delete(self, job_id: str) -> None:
         self.cancel(job_id)
         self.x("DELETE FROM files WHERE job_id=?", (job_id,))

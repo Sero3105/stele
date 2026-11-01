@@ -122,6 +122,31 @@ def cancel_job(job_id: str):
     return {"ok": True}
 
 
+@app.post("/api/files/{fid}/retry")
+async def retry_file(fid: int, request: Request):
+    """Convert a file again from its upload: after an error, or in another mode ({"mode": ...})."""
+    f = store.file(fid)
+    if f is None:
+        raise HTTPException(404, "File non trovato")
+    body = await request.json() if await request.body() else {}
+    _requeue(f, body.get("mode"))
+    return {"ok": True}
+
+
+def _requeue(f: dict, mode: str | None = None, recheck: dict | None = None) -> None:
+    if not _upload(f).is_file():
+        raise HTTPException(410, "Il file originale non è più disponibile: caricalo di nuovo")
+    try:
+        store.retry(f["id"], mode, recheck)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    scheduler.notify()
+
+
+def _upload(f: dict) -> Path:
+    return config.UPLOADS / f["job_id"] / Path(*PurePosixPath(f["rel_path"]).parts)
+
+
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
     store.delete(job_id)
