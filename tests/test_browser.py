@@ -74,8 +74,17 @@ def page(browser, server):
 
 
 def convert(pg, files, mode="auto", folder=False):
-    pg.check(f"input[name=mode][value={mode}]")
-    pg.set_input_files("#pick-folder" if folder else "#pick-files", files, timeout=120_000)
+    # WebKit on the CI runner sometimes hangs on set_input_files: reload and try once more.
+    for attempt in range(2):
+        pg.check(f"input[name=mode][value={mode}]")
+        try:
+            pg.set_input_files("#pick-folder" if folder else "#pick-files", files, timeout=60_000)
+            break
+        except Exception:
+            if attempt:
+                raise
+            pg.reload()
+            pg.wait_for_selector("#mem-text:not(:text('–'))")
     pg.click("#start")
     pg.wait_for_selector("#job-title:has-text('completata'), #job-title:has-text('non riuscita')", timeout=300_000)
 
