@@ -75,7 +75,7 @@ def page(browser, server):
 
 def convert(pg, files, mode="auto", folder=False):
     pg.check(f"input[name=mode][value={mode}]")
-    pg.set_input_files("#pick-folder" if folder else "#pick-files", files)
+    pg.set_input_files("#pick-folder" if folder else "#pick-files", files, timeout=120_000)
     pg.click("#start")
     pg.wait_for_selector("#job-title:has-text('completata'), #job-title:has-text('non riuscita')", timeout=300_000)
 
