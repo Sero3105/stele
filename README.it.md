@@ -77,6 +77,7 @@ make install   # ambiente Python 3.12, dipendenze bloccate e helper nativo Apple
 make models    # download e verifica dei modelli in ./models (~2,6 GB, unico passo online)
 make run       # avvia il server, poi apri http://127.0.0.1:8000
 make app       # facoltativo: Stele.app nella barra dei menu, senza terminale
+make quick-action  # facoltativo: Finder → clic destro → Azioni rapide → "Converti con Stele"
 ```
 
 **Stele.app** è un'icona nella barra dei menu: all'avvio fa partire il server e apre il
@@ -85,6 +86,15 @@ ferma. Puoi trascinarla in Applicazioni; se sposti la cartella del progetto, rif
 
 Trascina file o cartelle nella pagina, scegli la modalità e premi **Converti**. Al termine
 puoi scaricare l'intero **ZIP** oppure aprire l'anteprima e scaricare il singolo documento.
+
+Da terminale, senza l'app web (stessa struttura dello ZIP):
+
+```bash
+.venv/bin/python -m app.convert cartella/ file.pdf --out risultati/ --mode auto [--rag] [--split] [--pages 1-5]
+```
+
+L'azione rapida del Finder esegue lo stesso comando sui file selezionati: i risultati vanno in
+`Markdown (Stele)` accanto a loro, e dopo non resta nulla in esecuzione.
 
 <details>
 <summary><strong>Nota per Safari</strong></summary>
@@ -100,9 +110,9 @@ disattiva *Apri i file "sicuri" dopo il download*. Per scegliere ogni volta dove
 
 | Modalità | Pagine digitali | Pagine scansionate e immagini | Uso consigliato |
 |---|---|---|---|
-| **Automatica** *(default)* | Docling | Apple Vision → PaddleOCR-VL per tabelle, formule o testo dubbio → GLM-OCR se il testo resta scorretto | Uso generale |
+| **Automatica** *(default)* | Docling; PaddleOCR-VL legge le formule in evidenza come LaTeX | Apple Vision → PaddleOCR-VL per tabelle, formule o testo dubbio → GLM-OCR se il testo resta scorretto | Uso generale |
 | **Veloce** | Docling | Apple Vision; Docling + OcrMac solo se la pagina esce vuota. Mai modelli VLM | Molti documenti semplici |
-| **Avanzata** | Docling; PaddleOCR-VL per le formule non decodificate | PaddleOCR-VL su tutte le pagine; GLM-OCR se il testo resta scorretto | Scansioni con molte tabelle o formule |
+| **Avanzata** | Docling; PaddleOCR-VL legge le formule in evidenza come LaTeX | PaddleOCR-VL su tutte le pagine; GLM-OCR se il testo resta scorretto | Scansioni con molte tabelle o formule |
 
 Benchmark sulle stesse 31 pagine di prova (dataset sintetico, MacBook Pro M4 Pro 24 GB):
 
@@ -125,7 +135,9 @@ conversione.zip
 ├── relazione/
 │   ├── relazione.md            un documento per file sorgente
 │   ├── assets/grafico_001.png  immagini collegate con percorsi relativi
-│   └── metadata.json           sorgente, formato, pagine, modalità, lingua, durata
+│   ├── assets/tabella_001.csv  ogni tabella anche in CSV
+│   ├── metadata.json           sorgente, formato, pagine, modalità, lingua, durata
+│   └── chunks.jsonl            sezioni con le pagine di origine (solo con l'opzione RAG)
 └── archivio/scansione/…        le cartelle caricate mantengono la loro struttura
 ```
 
@@ -137,12 +149,43 @@ conversione.zip
 - **Tabelle** — Sulle scansioni degradate la struttura viene da PaddleOCR-VL e il testo da
   GLM-OCR, senza perdere né aggiungere numeri. Se la ricostruzione non è sicura, restano
   righe leggibili al posto di una tabella inaffidabile.
+- **Formule** — Le formule in evidenza dei PDF digitali vengono ritagliate dalla pagina e
+  lette come LaTeX da PaddleOCR-VL; il testo intorno resta lo strato di testo esatto del PDF.
+- **Opzione RAG** — `<!-- pagina N -->` dove inizia ogni pagina (invisibile nella resa) e
+  `chunks.jsonl`: una riga per sezione con il percorso dei titoli, il testo, le pagine di
+  origine e i motori che le hanno lette, pronta per un indice di ricerca senza rifare il
+  chunking.
 - **Grafici** — L'immagine viene sempre conservata; la tabella dei dati compare solo quando
   ogni valore è leggibile nel grafico.
 - **Office** — PPTX: una sezione per slide con le note del relatore. XLSX: una sezione per
   foglio, formule con i valori calcolati e celle unite in `metadata.json`.
 - **ZIP in streaming** — L'archivio viene generato nella risposta HTTP: nessun file
   intermedio su disco e nessun archivio da ripulire.
+
+Nell'interfaccia:
+
+- **Pagine da controllare** — L'anteprima elenca le pagine il cui testo resta dubbio o che
+  sono state rilette, con il motivo; un clic mostra la pagina originale accanto al Markdown.
+- **Pagina originale a fianco** — Per PDF e immagini, l'immagine della pagina accanto al
+  testo convertito (allineati pagina per pagina con l'opzione RAG).
+- **Riprova e riconverti** — Riprova un file in errore o riconverti in Avanzata un file
+  completato partendo dall'originale caricato, senza caricarlo di nuovo.
+- **Già convertito** — Un file identico a uno già convertito con le stesse opzioni (stesso
+  SHA-256) riceve una copia di quel risultato invece di una nuova conversione.
+- **Ricerca** — Ricerca full-text (SQLite FTS5, accenti ignorati) in tutti i documenti
+  convertiti; *Conserva* esclude una conversione dalla pulizia dopo 7 giorni.
+- **Correzione a mano** — *Modifica* apre il Markdown accanto alla pagina originale; il
+  salvataggio aggiorna indice di ricerca, CSV delle tabelle e chunk. *Copia* copia tutto il
+  documento.
+- **Giudizio sul risultato** — *Buono* lo conferma; *Così così* rilegge le pagine dubbie (tutte,
+  se non ce ne sono) con il motore successivo più forte, riusando le altre pagine dai
+  checkpoint; *Da rifare* riconverte in Avanzata, o con GLM-OCR su tutte le pagine se era già
+  Avanzata. La versione sostituita resta: *Confronta* mostra le differenze riga per riga e
+  permette di tornare indietro. Se la riconversione fallisce, resta il risultato precedente.
+- **Opzioni** — *Dividi in capitoli*: una nota per capitolo in `capitoli/` più una nota indice
+  con i `[[wiki-link]]`; *Solo alcune pagine*: per esempio `1-5, 8`. Ogni documento riceve le
+  proprietà per Obsidian e Synapse (`source`, `pages`, `language`, `converted`, `tags: [stele]`).
+- **Notifica** — Quando una conversione finisce mentre la scheda è in secondo piano.
 
 ## Formati supportati
 
@@ -151,6 +194,7 @@ conversione.zip
 | PDF | Digitali, scansionati, misti, multipagina, con tabelle, formule, grafici o due colonne |
 | Office | DOCX, PPTX, XLSX · DOC, RTF, ODT tramite `textutil` di macOS |
 | Testo | HTML, CSV, TXT, Markdown (incluse le immagini collegate accanto al file) |
+| Libri e posta | EPUB senza DRM (capitoli in ordine di lettura, con le immagini) · EML (intestazione, testo, allegati convertiti come documenti a parte) |
 | Immagini | PNG, JPG, TIFF (anche multipagina), BMP |
 
 > PPT, XLS, ODP e ODS richiedono LibreOffice (`brew install --cask libreoffice`).
@@ -246,7 +290,8 @@ Nulla viene scritto nella cartella del progetto. I dati si trovano in
 | `jobs.sqlite3` | Stato dei lavori |
 
 Ogni pagina completata viene salvata con scrittura atomica. Le conversioni più vecchie
-di 7 giorni vengono eliminate automaticamente, mai mentre sono in corso o in download.
+di 7 giorni vengono eliminate automaticamente, mai mentre sono in corso o in download, e mai
+se conservate.
 
 | Variabile | Default | Descrizione |
 |---|---|---|
@@ -261,7 +306,8 @@ di 7 giorni vengono eliminate automaticamente, mai mentre sono in corso o in dow
 ```text
 app/
   main.py          API FastAPI e frontend statico
-  jobs.py          lavori su SQLite, scheduler, ripresa, pulizia
+  convert.py       conversione batch da riga di comando (usata anche dall'azione rapida del Finder)
+  jobs.py          lavori su SQLite, scheduler, ripresa, riuso, indice di ricerca, pulizia
   pipeline.py      un file: analisi → routing → motori → qualità → assemblaggio → pubblicazione
   router.py        politica di routing (funzioni pure)
   markdown.py      assemblaggio delle pagine e normalizzazione del Markdown
@@ -272,10 +318,10 @@ app/
   resources.py     budget di memoria, lease, residenza dei modelli
   models.py        registro, download, verifica e pulizia dei modelli
   engines/         Docling, Apple Vision, VLM su MLX
-native/            helper Swift per Apple Vision, app nella barra dei menu
+native/            helper Swift per Apple Vision, app nella barra dei menu, azione rapida del Finder
 frontend/          HTML, CSS e JS senza dipendenze esterne
 benchmarks/        dataset generato, benchmark, REPORT.md
-tests/             208 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
+tests/             235 test: unit, router, Markdown, tabelle, grafici, pipeline, API/ZIP,
                    kill -9 e ripresa, browser (Chrome e WebKit)
 ```
 
@@ -298,7 +344,8 @@ Scelte tecniche, misure e limiti sono documentati in
   non a garantire la qualità su documenti reali.
 - Dai grafici senza valori stampati non vengono estratti dati, perché le barre andrebbero
   stimate.
-- Le formule nei PDF digitali restano testo; nelle scansioni diventano LaTeX.
+- Le formule nel testo dei PDF digitali restano testo; quelle in evidenza e quelle nelle
+  scansioni diventano LaTeX.
 - Il livello dei titoli dipende dal motore che legge la pagina: il normalizzatore elimina
   i salti, ma non promuove titoli.
 - Per DOCX, PPTX e XLSX la ripresa dopo un crash avviene per file, non per pagina.

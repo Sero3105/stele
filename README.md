@@ -79,11 +79,21 @@ make install   # Python 3.12 environment, pinned dependencies and the native App
 make models    # download and verify the models into ./models (~2.6 GB, the only online step)
 make run       # start the server, then open http://127.0.0.1:8000
 make app       # optional: Stele.app in the menu bar, no terminal needed
+make quick-action  # optional: Finder → right click → Quick Actions → "Converti con Stele"
 ```
 
 Drop files or folders onto the page, pick a mode and press **Converti** (Convert). When it
 is done you can download the whole **ZIP**, or open the preview and download a single
 document.
+
+From the terminal, without the web app (same output layout as the ZIP):
+
+```bash
+.venv/bin/python -m app.convert folder/ file.pdf --out results/ --mode auto [--rag] [--split] [--pages 1-5]
+```
+
+The Finder Quick Action runs the same command on the selected files: results go to
+`Markdown (Stele)` next to them, and nothing keeps running afterwards.
 
 **Stele.app** is a menu bar icon: on launch it starts the server and opens the browser; its
 menu opens the interface, the data folder or the log, and *Quit* stops the server. You can
@@ -103,9 +113,9 @@ each download*.
 
 | Mode | Digital pages | Scanned pages and images | Best for |
 |---|---|---|---|
-| **Automatic** *(Automatica, default)* | Docling | Apple Vision → PaddleOCR-VL for tables, formulas or doubtful text → GLM-OCR if the text is still wrong | General use |
+| **Automatic** *(Automatica, default)* | Docling; PaddleOCR-VL reads display formulas as LaTeX | Apple Vision → PaddleOCR-VL for tables, formulas or doubtful text → GLM-OCR if the text is still wrong | General use |
 | **Fast** *(Veloce)* | Docling | Apple Vision; Docling + OcrMac only if the page comes out empty. Never VLMs | Many simple documents |
-| **Advanced** *(Avanzata)* | Docling; PaddleOCR-VL for undecoded formulas | PaddleOCR-VL on every page; GLM-OCR if the text is still wrong | Scans with many tables or formulas |
+| **Advanced** *(Avanzata)* | Docling; PaddleOCR-VL reads display formulas as LaTeX | PaddleOCR-VL on every page; GLM-OCR if the text is still wrong | Scans with many tables or formulas |
 
 Benchmark on the same 31 test pages (synthetic dataset, MacBook Pro M4 Pro 24 GB):
 
@@ -128,7 +138,9 @@ conversione.zip
 ├── relazione/
 │   ├── relazione.md            one document per source file
 │   ├── assets/grafico_001.png  images linked with relative paths
-│   └── metadata.json           source, format, pages, mode, language, duration
+│   ├── assets/tabella_001.csv  every table also as CSV
+│   ├── metadata.json           source, format, pages, mode, language, duration
+│   └── chunks.jsonl            sections with their source pages (RAG option only)
 └── archivio/scansione/…        uploaded folders keep their structure
 ```
 
@@ -140,12 +152,43 @@ conversione.zip
 - **Tables** — On degraded scans the structure comes from PaddleOCR-VL and the text from
   GLM-OCR, without losing or adding numbers. When the rebuild is not reliable, readable rows
   replace an untrustworthy table.
+- **Formulas** — Display formulas in digital PDFs are cropped from the page and read as
+  LaTeX by PaddleOCR-VL; the text around them stays the exact PDF text layer.
+- **RAG option** — `<!-- pagina N -->` where each page starts (invisible when rendered) and
+  `chunks.jsonl`: one line per section with its heading path, text, source pages and the
+  engines that read them, ready for a retrieval index without chunking again.
 - **Charts** — The image is always kept; the data table appears only when every value is
   readable in the chart.
 - **Office** — PPTX: one section per slide with the speaker notes. XLSX: one section per
   sheet, formulas with their computed values and merged cells in `metadata.json`.
 - **Streaming ZIP** — The archive is built inside the HTTP response: no intermediate file on
   disk and nothing to clean up.
+
+In the interface:
+
+- **Pages to check** — The preview lists the pages whose text still looks doubtful or that
+  were read a second time, with the reason; click one to see the original page next to the
+  Markdown.
+- **Original page side by side** — PDFs and images show the page image next to the converted
+  text (aligned page by page with the RAG option).
+- **Retry and reconvert** — Retry a failed file or reconvert a finished one in Advanced mode
+  from the original upload, without uploading it again.
+- **Already converted** — A file identical to one already converted with the same options
+  (same SHA-256) gets a copy of that result instead of a new conversion.
+- **Search** — Full-text search (SQLite FTS5, accents ignored) across every converted
+  document; *Conserva* (Keep) excludes a conversion from the 7-day cleanup.
+- **Correct by hand** — *Modifica* (Edit) opens the Markdown next to the original page; saving
+  updates the search index, the table CSVs and the chunks. *Copia* copies the whole document.
+- **Rate the result** — *Buono* (good) keeps it; *Così così* (so-so) re-reads the doubtful pages
+  (all, if none is listed) with the next stronger engine, reusing the other pages from their
+  checkpoints; *Da rifare* (to redo) reconverts in Advanced mode, or with GLM-OCR on every page
+  if it already was Advanced. The replaced version is kept: *Confronta* (Compare) shows a line
+  diff and lets you go back. A failed reconversion leaves the previous result in place.
+- **Options** — *Dividi in capitoli* (split into chapters): one note per chapter in
+  `capitoli/` plus an index note with `[[wiki-links]]`; *Solo alcune pagine* (only some
+  pages): e.g. `1-5, 8`. Every document gets Obsidian/Synapse properties (`source`, `pages`,
+  `language`, `converted`, `tags: [stele]`).
+- **Notification** — When a conversion ends while the tab is in the background.
 
 ## Supported formats
 
@@ -154,6 +197,7 @@ conversione.zip
 | PDF | Digital, scanned, mixed, multi-page, with tables, formulas, charts or two columns |
 | Office | DOCX, PPTX, XLSX · DOC, RTF, ODT via macOS `textutil` |
 | Text | HTML, CSV, TXT, Markdown (images linked next to the file are included) |
+| Books and mail | EPUB without DRM (chapters in reading order, with pictures) · EML (header, body, attachments converted as separate documents) |
 | Images | PNG, JPG, TIFF (multi-page too), BMP |
 
 > PPT, XLS, ODP and ODS need LibreOffice (`brew install --cask libreoffice`).
@@ -247,7 +291,7 @@ Nothing is written to the project folder. Data lives in
 | `jobs.sqlite3` | Job state |
 
 Every finished page is saved with an atomic write. Conversions older than 7 days are deleted
-automatically, never while they are running or being downloaded.
+automatically, never while they are running or being downloaded, and never if kept.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -262,7 +306,8 @@ automatically, never while they are running or being downloaded.
 ```text
 app/
   main.py          FastAPI API and static frontend
-  jobs.py          jobs on SQLite, scheduler, resume, cleanup
+  convert.py       command-line batch conversion (also used by the Finder Quick Action)
+  jobs.py          jobs on SQLite, scheduler, resume, reuse, search index, cleanup
   pipeline.py      one file: analysis → routing → engines → quality → assembly → publishing
   router.py        routing policy (pure functions)
   markdown.py      page assembly and Markdown normalisation
@@ -273,10 +318,10 @@ app/
   resources.py     memory budget, leases, model residency
   models.py        model registry, download, verification and pruning
   engines/         Docling, Apple Vision, VLMs on MLX
-native/            Swift helper for Apple Vision, menu bar app
+native/            Swift helper for Apple Vision, menu bar app, Finder Quick Action
 frontend/          HTML, CSS and JS with no external dependencies
 benchmarks/        generated dataset, benchmarks, REPORT.md
-tests/             208 tests: unit, router, Markdown, tables, charts, pipeline, API/ZIP,
+tests/             235 tests: unit, router, Markdown, tables, charts, pipeline, API/ZIP,
                    kill -9 and resume, browser (Chrome and WebKit)
 ```
 
@@ -296,7 +341,8 @@ CI runs the full suite, models included, on a GitHub-hosted Apple Silicon runner
   guarantee quality on real documents.
 - No data is extracted from charts without printed values, because the bars would have to
   be estimated.
-- Formulas in digital PDFs stay as text; in scans they become LaTeX.
+- Inline formulas in digital PDFs stay as text; display formulas and formulas in scans
+  become LaTeX.
 - Heading levels depend on the engine that reads the page: the normaliser removes skipped
   levels but doesn't promote headings.
 - For DOCX, PPTX and XLSX, resume after a crash works per file, not per page.

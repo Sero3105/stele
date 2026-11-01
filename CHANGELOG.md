@@ -3,6 +3,43 @@
 All notable changes to Stele. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Pages to check: the preview lists pages whose text still looks doubtful or that were read
+  a second time, with the reason.
+- The preview shows the original page of PDFs and images next to the Markdown.
+- Retry a failed file, or reconvert a finished one in Advanced mode, from the original upload.
+- Command-line batch conversion: `python -m app.convert folder/ --out results/`.
+- Every table is also saved as `assets/tabella_NNN.csv`.
+- Identical files converted with the same options reuse the existing result.
+- RAG option: `<!-- pagina N -->` page markers and `chunks.jsonl` (sections with heading path,
+  source pages and engines).
+- Full-text search across converted documents (SQLite FTS5) and *Keep* to exclude a
+  conversion from the retention cleanup.
+- Display formulas in digital PDFs are read as LaTeX from a crop of the formula, keeping the
+  exact text layer of the rest of the page.
+- The document language is identified for any language (macOS language identification), not
+  only Italian and English.
+- Edit the converted Markdown in the preview, next to the original page; *Copy* puts the whole
+  document on the clipboard.
+- Rate a result (good, so-so, to redo): so-so re-reads the doubtful pages with a stronger
+  engine, to redo reconverts with the most accurate method. The replaced version is kept, can
+  be compared line by line and restored; a failed reconversion keeps the previous result.
+- Split into chapters: one note per chapter plus an index note with wiki-links.
+- Convert only some pages of a PDF (`1-5, 8`), in the interface and with `--pages`.
+- Obsidian/Synapse properties in every document: source, pages, language, conversion date, tag.
+- EPUB (without DRM) and EML input; e-mail attachments are converted as separate documents.
+- Finder Quick Action "Converti con Stele" (`make quick-action`), and a notification when a
+  conversion ends in a background tab.
+
+### Changed
+
+- Page checkpoints are kept after a conversion, so a recheck re-reads only some pages.
+- Errors of an action in the interface appear as a short message instead of a blocking alert;
+  long file names and error messages wrap between words.
+
 ## [1.0.0] - 2026-10-31
 
 First stable release: offline document-to-Markdown conversion on Apple Silicon.
