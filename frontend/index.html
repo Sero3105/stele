@@ -4,14 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stele</title>
+<meta name="description" content="Converti PDF, scansioni, documenti Office e immagini in Markdown, offline sul tuo Mac.">
+<meta name="theme-color" content="#eceae5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <img class="logo" src="/static/logo.svg" alt="" width="40" height="40">
-    <div><h1>Stele</h1><p>PDF, scansioni, Office e immagini in Markdown — tutto sul tuo Mac, nulla in rete.</p></div>
+    <img class="logo" src="/static/logo.svg" alt="" width="36" height="36">
+    <div><h1>Stele</h1><p>Documenti in Markdown, sul tuo Mac. Nulla esce dal computer.</p></div>
   </div>
   <button id="toggle-res" class="ghost" aria-expanded="true" aria-controls="resources">Risorse</button>
 </header>
@@ -20,9 +23,7 @@
   <section class="work">
     <div class="card">
       <div id="drop" class="drop" tabindex="0" role="button" aria-label="Trascina qui file o cartelle, oppure premi Invio per sceglierli">
-        <div class="drop-icon" aria-hidden="true">⇪</div>
-        <strong>Trascina qui file o cartelle</strong>
-        <span>oppure</span>
+        <strong class="drop-title">Trascina qui documenti o cartelle</strong>
         <div class="row">
           <label class="btn">Scegli file<input id="pick-files" type="file" multiple hidden></label>
           <label class="btn">Scegli cartella<input id="pick-folder" type="file" webkitdirectory multiple hidden></label>
@@ -41,14 +42,16 @@
       <fieldset class="modes">
         <legend>Modalità</legend>
         <label class="mode"><input type="radio" name="mode" value="auto" checked>
-          <span><b>Automatica</b> — consigliata: sceglie il metodo migliore per ogni pagina</span></label>
+          <span><b>Automatica</b> Consigliata: sceglie il metodo migliore per ogni pagina</span></label>
         <label class="mode"><input type="radio" name="mode" value="fast">
-          <span><b>Veloce</b> — risultati rapidi, meno accurata su tabelle e scansioni difficili</span></label>
+          <span><b>Veloce</b> Risultati rapidi, meno accurata su tabelle e scansioni difficili</span></label>
         <label class="mode"><input type="radio" name="mode" value="advanced">
-          <span><b>Avanzata</b> — massima accuratezza su scansioni, tabelle e formule, più lenta</span></label>
+          <span><b>Avanzata</b> Massima accuratezza su scansioni, tabelle e formule, più lenta</span></label>
       </fieldset>
+      <details class="more">
+      <summary>Altre opzioni <span class="muted">capitoli, RAG, solo alcune pagine</span></summary>
       <fieldset class="options">
-        <legend>Opzioni</legend>
+        <legend class="sr">Altre opzioni</legend>
         <label class="option"><input id="opt-split" type="checkbox">
           <span><b>Dividi in capitoli</b> — una nota per capitolo e una nota indice con i collegamenti, per Obsidian e Synapse</span></label>
         <label class="option"><input id="opt-rag" type="checkbox">
@@ -56,7 +59,8 @@
         <label class="option pages"><span><b>Solo alcune pagine</b> — PDF e scansioni</span>
           <input id="opt-pages" type="text" inputmode="numeric" placeholder="tutte (esempio: 1-5, 8)" autocomplete="off"></label>
       </fieldset>
-      <button id="start" class="primary" disabled>Converti</button>
+      </details>
+      <button id="start" class="primary big" disabled>Converti</button>
       <div id="upload-status" class="muted" aria-live="polite"></div>
     </div>
 
@@ -90,7 +94,7 @@
     <div class="card">
       <h2>Conversioni recenti</h2>
       <ul id="history" class="history"></ul>
-      <small class="muted">Le conversioni vengono eliminate automaticamente dopo 7 giorni, tranne quelle conservate.</small>
+      <small class="muted">Eliminate automaticamente dopo 7 giorni, tranne quelle conservate.</small>
     </div>
   </section>
 

@@ -26,6 +26,7 @@ function addFiles(items) {
 function renderSelection() {
   $("#selection").classList.toggle("hidden", !selected.length);
   $("#start").disabled = !selected.length || uploading;
+  $("#start").textContent = uploading ? "Caricamento…" : selected.length ? `Converti ${plural(selected.length, "file", "file")}` : "Converti";
   const total = selected.reduce((a, s) => a + s.file.size, 0);
   $("#sel-count").textContent = `${selected.length} file selezionati · ${fmtBytes(total)}`;
   const types = {};
@@ -55,6 +56,7 @@ drop.addEventListener("drop", async e => {
   if (entries.length) addFiles((await Promise.all(entries.map(en => walk(en, "")))).flat());
   else addFiles([...e.dataTransfer.files].map(f => ({ file: f, path: f.name })));
 });
+drop.addEventListener("click", e => { if (!e.target.closest("label")) $("#pick-files").click(); });
 drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#pick-files").click(); } });
 
 // ---------------------------------------------------------------- upload
@@ -129,6 +131,7 @@ $("#start").onclick = async () => {
 function openJob(id) {
   currentJob = id;
   $("#job").classList.remove("hidden");
+  $("#job").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   poll();
 }
 
@@ -199,7 +202,7 @@ function renderJob(job) {
     const s = f.summary || {};
     const pages = f.state === "done" ? (s.pages ?? "") : f.pages_total ? `${f.pages_done}/${f.pages_total}` : "";
     const mode = f.mode || job.mode;
-    const actions = f.state === "done" ? `<button class="link" data-prev="${f.id}" data-name="${esc(f.rel_path)}">Anteprima</button>
+    const actions = f.state === "done" ? `<button class="btn-sm" data-prev="${f.id}" data-name="${esc(f.rel_path)}">Anteprima</button>
       <a class="link" href="/api/files/${f.id}/zip">Scarica</a>` + (mode !== "advanced" && s.pageable ? `
       <button class="link" data-retry="${f.id}" data-mode="advanced">Riconverti in Avanzata</button>` : "")
       : f.state === "error" || f.state === "cancelled" ? `<button class="link" data-retry="${f.id}">Riprova</button>` : "";
@@ -413,7 +416,7 @@ async function loadHistory() {
         <span class="small">${["running", "queued", "done", "error"].filter(s => c[s]).map(s => `${badge(s)} ${c[s]}`).join(" ")}</span>
         <button class="link" data-keep="${j.id}" data-on="${j.keep ? 0 : 1}" title="${j.keep ? "Torna a eliminarla dopo 7 giorni" : "Non eliminarla dopo 7 giorni"}">${j.keep ? "Conservata ✓" : "Conserva"}</button>
         <button class="link danger" data-del="${j.id}" title="Elimina file caricati e risultati">Elimina</button></li>`;
-    }).join("") : `<li class="muted">Nessuna conversione.</li>`;
+    }).join("") : `<li class="muted">Nessuna conversione per ora: i lavori che avvii compaiono qui.</li>`;
   } catch { /* server restarting */ }
 }
 $("#history").addEventListener("click", async e => {
